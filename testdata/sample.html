@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Sample Document</title>
+  <style>body { color: red; }</style>
+  <script>console.log("should not appear");</script>
+</head>
+<body>
+  <h1>Heading One</h1>
+  <p>A paragraph with <strong>bold</strong>, <em>italic</em>, and a
+    <a href="https://example.com/docs">safe link</a> plus an
+    <a href="javascript:alert(1)">unsafe link</a>.</p>
+
+  <h2>A List</h2>
+  <ul>
+    <li>alpha</li>
+    <li>beta
+      <ol>
+        <li>nested one</li>
+        <li>nested two</li>
+      </ol>
+    </li>
+  </ul>
+
+  <h2>A Table</h2>
+  <table>
+    <thead>
+      <tr><th>Product</th><th>Price</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Widget</td><td>$9.99</td></tr>
+      <tr><td>Gadget | Pro</td><td>$19.99</td></tr>
+    </tbody>
+  </table>
+
+  <p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="tiny"></p>
+  <blockquote>Quoted wisdom.</blockquote>
+  <pre><code>fmt.Println("hello")</code></pre>
+</body>
+</html>
