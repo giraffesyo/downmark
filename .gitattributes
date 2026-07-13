@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+# Test fixtures must be byte-exact: a PDF built from ASCII looks like text
+# to git, and CRLF conversion corrupts its stream lengths and xref offsets.
+*.pdf -text
+*.docx -text
+*.xlsx -text
+*.pptx -text
+*.bin -text
