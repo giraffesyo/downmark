@@ -72,6 +72,35 @@ res, err := all.ConvertFile(ctx, "report.docx")
 Indicative binary sizes (`-trimpath -ldflags "-s -w"`, darwin/arm64): a
 PDF-only consumer ≈ 4.9 MB, CSV-only ≈ 4.5 MB, everything ≈ 7.5 MB.
 
+## MarkItDown comparison
+
+Downmark and [MarkItDown](https://github.com/microsoft/markitdown) solve the
+same end-to-end problem, so the comparison uses their CLI interfaces against
+the same fixtures. Each value is the median of five complete conversions,
+including process startup and Markdown written to stdout. Both tools returned
+successfully for every fixture.
+
+Measured 2026-07-13 at commit `c0835be`, with Go `1.26.4`, MarkItDown
+`0.1.6`, Python `3.14.2`, and macOS `26.5.1` on an Apple M5 Pro
+(`darwin/arm64`). Re-run on your target environment before making a
+performance decision.
+
+| Fixture | Downmark | MarkItDown |
+|---|---:|---:|
+| PDF | 6.8 ms | 388.0 ms |
+| PDF (Form XObject + ToUnicode) | 6.4 ms | 320.8 ms |
+| DOCX | 6.6 ms | 331.6 ms |
+| XLSX | 6.2 ms | 324.0 ms |
+| PPTX | 6.4 ms | 324.5 ms |
+| HTML | 6.2 ms | 358.2 ms |
+| Shift-JIS CSV | 5.2 ms | 321.3 ms |
+
+Markdown is allowed to differ when both renderings are valid. The comparison
+runner records each output's byte count and digest so changes are visible;
+Downmark's golden tests define its output contract. Run the benchmark and
+inspect its raw output with the commands in
+[benchmarks/README.md](benchmarks/README.md).
+
 Custom converters implement `downmark.Converter` (use
 `StreamInfo.Matches` in `Accepts`) and register with
 `e.Register(conv, downmark.PrioritySpecific)`; converters registered later
