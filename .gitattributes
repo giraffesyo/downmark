@@ -7,3 +7,5 @@
 *.xlsx -text
 *.pptx -text
 *.bin -text
+# Upstream CSV fixture keeps its original CRLF line endings.
+*.csv -text
