@@ -77,24 +77,25 @@ PDF-only consumer ≈ 4.9 MB, CSV-only ≈ 4.5 MB, everything ≈ 7.5 MB.
 
 Downmark and [MarkItDown](https://github.com/microsoft/markitdown) solve the
 same end-to-end problem, so the comparison uses their CLI interfaces against
-the same fixtures. Each value is the median of five complete conversions,
-including process startup and Markdown written to stdout. Both tools returned
-successfully for every fixture.
+the same fixtures. Each value is the median of ten complete conversions,
+including process startup and Markdown written to stdout. The runner
+alternates which CLI runs first on each measured pair to reduce order bias.
+Both tools returned successfully for every fixture.
 
-Measured 2026-07-13 at commit `c0835be`, with Go `1.26.4`, MarkItDown
-`0.1.6`, Python `3.14.2`, and macOS `26.5.1` on an Apple M5 Pro
-(`darwin/arm64`). Re-run on your target environment before making a
-performance decision.
+Measured 2026-07-15 from a worktree based on commit `152d4a8` with
+`github.com/giraffesyo/pdf` v0.2.1, using Go `1.26.4`, MarkItDown `0.1.6`,
+Python `3.14.2`, and macOS `26.5.1` on an Apple M5 Pro (`darwin/arm64`).
+Re-run on your target environment before making a performance decision.
 
 | Fixture | Downmark | MarkItDown |
 |---|---:|---:|
-| PDF | 6.8 ms | 388.0 ms |
-| PDF (Form XObject + ToUnicode) | 6.4 ms | 320.8 ms |
-| DOCX | 6.6 ms | 331.6 ms |
-| XLSX | 6.2 ms | 324.0 ms |
-| PPTX | 6.4 ms | 324.5 ms |
-| HTML | 6.2 ms | 358.2 ms |
-| Shift-JIS CSV | 5.2 ms | 321.3 ms |
+| PDF | 7.0 ms | 394.5 ms |
+| PDF (Form XObject + ToUnicode) | 5.6 ms | 337.7 ms |
+| DOCX | 7.2 ms | 350.0 ms |
+| XLSX | 6.7 ms | 342.1 ms |
+| PPTX | 7.6 ms | 338.7 ms |
+| HTML | 6.5 ms | 341.2 ms |
+| Shift-JIS CSV | 5.5 ms | 339.8 ms |
 
 Markdown is allowed to differ when both renderings are valid. The comparison
 runner records each output's byte count and digest so changes are visible;
