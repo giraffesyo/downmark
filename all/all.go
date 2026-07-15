@@ -16,6 +16,7 @@ import (
 	"github.com/giraffesyo/downmark/convert/pdf"
 	"github.com/giraffesyo/downmark/convert/pptx"
 	"github.com/giraffesyo/downmark/convert/xlsx"
+	"github.com/giraffesyo/downmark/convert/zipfile"
 )
 
 // Options configures cross-format conversion behavior.
@@ -34,6 +35,7 @@ func New(opts Options) *downmark.Engine {
 	pdf.Register(e)
 	pptx.Register(e)
 	docx.Register(e, docx.Options{KeepDataURIs: opts.KeepDataURIs})
+	zipfile.Register(e)
 	return e
 }
 

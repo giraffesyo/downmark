@@ -3,48 +3,65 @@
 package pptx
 
 import (
-	"archive/zip"
+	"bytes"
+	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"path"
 	"strings"
+
+	"github.com/giraffesyo/downmark/internal/ctxio"
+	"github.com/giraffesyo/downmark/internal/limitbuf"
+	"github.com/giraffesyo/downmark/internal/ooxml"
 )
+
+var errMissingPart = errors.New("missing archive part")
 
 // Convert reads a .pptx archive and returns its Markdown rendering plus the
 // deck title (first title text found, "" if none).
-func Convert(ra io.ReaderAt, size int64) (md string, title string, err error) {
-	zr, err := zip.NewReader(ra, size)
+func Convert(ctx context.Context, ra io.ReaderAt, size int64, outputLimit int) (md string, title string, err error) {
+	archive, err := ooxml.Open(ctx, ra, size)
 	if err != nil {
 		return "", "", fmt.Errorf("pptx: not a zip archive: %w", err)
 	}
-	d := &deck{zr: zr}
+	d := &deck{archive: archive, outputLimit: outputLimit}
 
 	var pres presentation
-	if err := d.parseXML("ppt/presentation.xml", &pres); err != nil {
+	if err := d.parseXML(ctx, "ppt/presentation.xml", &pres); err != nil {
 		return "", "", err
 	}
-	presRels, err := d.parseRels("ppt/_rels/presentation.xml.rels")
+	presRels, err := d.parseRels(ctx, "ppt/_rels/presentation.xml.rels")
 	if err != nil {
 		return "", "", err
 	}
 
-	var b strings.Builder
+	b := limitbuf.New(outputLimit)
 	for i, sld := range pres.SlideIDs {
+		if err := ctx.Err(); err != nil {
+			return "", "", err
+		}
 		target, ok := presRels[sld.RID]
 		if !ok {
 			continue
 		}
 		slidePath := resolveTarget("ppt", target)
 		if i > 0 {
-			b.WriteString("\n")
+			if _, err := b.WriteString("\n"); err != nil {
+				return "", "", err
+			}
 		}
-		fmt.Fprintf(&b, "<!-- Slide number: %d -->\n\n", i+1)
-		slideMD, slideTitle, err := d.convertSlide(slidePath)
+		if _, err := fmt.Fprintf(b, "<!-- Slide number: %d -->\n\n", i+1); err != nil {
+			return "", "", err
+		}
+		slideMD, slideTitle, err := d.convertSlide(ctx, slidePath)
 		if err != nil {
 			return "", "", fmt.Errorf("pptx: %s: %w", slidePath, err)
 		}
-		b.WriteString(slideMD)
+		if _, err := b.WriteString(slideMD); err != nil {
+			return "", "", err
+		}
 		if title == "" {
 			title = slideTitle
 		}
@@ -53,26 +70,36 @@ func Convert(ra io.ReaderAt, size int64) (md string, title string, err error) {
 }
 
 type deck struct {
-	zr *zip.Reader
+	archive     *ooxml.Archive
+	outputLimit int
+	err         error
 }
 
-func (d *deck) open(name string) (io.ReadCloser, error) {
+func (d *deck) read(ctx context.Context, name string) ([]byte, error) {
 	name = strings.TrimPrefix(path.Clean(name), "/")
-	for _, f := range d.zr.File {
-		if f.Name == name {
-			return f.Open()
-		}
+	data, found, err := d.archive.Read(ctx, name)
+	if err != nil {
+		d.err = err
+		return nil, err
 	}
-	return nil, fmt.Errorf("pptx: missing archive part %q", name)
+	if !found {
+		return nil, fmt.Errorf("pptx: %w %q", errMissingPart, name)
+	}
+	return data, nil
 }
 
-func (d *deck) parseXML(name string, v any) error {
-	rc, err := d.open(name)
+func (d *deck) parseXML(ctx context.Context, name string, v any) error {
+	data, err := d.read(ctx, name)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = rc.Close() }() // read-only handle
-	dec := xml.NewDecoder(rc)
+	if err := ooxml.ValidateXML(ctx, data); err != nil {
+		if ctx.Err() != nil || errors.Is(err, ooxml.ErrXMLComplexity) {
+			d.err = err
+		}
+		return fmt.Errorf("pptx: validate %s: %w", name, err)
+	}
+	dec := xml.NewDecoder(ctxio.NewReader(ctx, bytes.NewReader(data)))
 	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("pptx: parse %s: %w", name, err)
 	}
@@ -81,14 +108,19 @@ func (d *deck) parseXML(name string, v any) error {
 
 // parseRels reads a .rels part into an ID → target map. A missing part
 // yields an empty map (slides without relationships are legal).
-func (d *deck) parseRels(name string) (map[string]string, error) {
-	rc, err := d.open(name)
+func (d *deck) parseRels(ctx context.Context, name string) (map[string]string, error) {
+	data, err := d.read(ctx, name)
 	if err != nil {
+		if d.err != nil {
+			return nil, d.err
+		}
 		return map[string]string{}, nil
 	}
-	defer func() { _ = rc.Close() }() // read-only handle
 	var rels relationships
-	if err := xml.NewDecoder(rc).Decode(&rels); err != nil {
+	if err := ooxml.ValidateXML(ctx, data); err != nil {
+		return nil, fmt.Errorf("pptx: validate %s: %w", name, err)
+	}
+	if err := xml.NewDecoder(ctxio.NewReader(ctx, bytes.NewReader(data))).Decode(&rels); err != nil {
 		return nil, fmt.Errorf("pptx: parse %s: %w", name, err)
 	}
 	m := make(map[string]string, len(rels.Rels))

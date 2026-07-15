@@ -6,10 +6,14 @@ package csv
 import (
 	"context"
 	stdcsv "encoding/csv"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/giraffesyo/downmark"
+	"github.com/giraffesyo/downmark/internal/ctxio"
+	"github.com/giraffesyo/downmark/internal/limitbuf"
 	"github.com/giraffesyo/downmark/internal/mdutil"
 	"github.com/giraffesyo/downmark/internal/textenc"
 )
@@ -28,8 +32,8 @@ func (converter) Accepts(info downmark.StreamInfo) bool {
 	return info.Matches([]string{".csv"}, []string{"text/csv", "application/csv"})
 }
 
-func (converter) Convert(_ context.Context, input io.ReadSeeker, info downmark.StreamInfo) (*downmark.Result, error) {
-	text, err := textenc.DecodeAll(input, info.Charset)
+func (converter) Convert(ctx context.Context, input io.ReadSeeker, info downmark.StreamInfo) (*downmark.Result, error) {
+	text, err := textenc.DecodeAll(ctxio.NewReader(ctx, input), info.Charset)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +62,15 @@ func (converter) Convert(_ context.Context, input io.ReadSeeker, info downmark.S
 			rows[i+1] = append(rows[i+1], "")
 		}
 	}
-	return &downmark.Result{Markdown: mdutil.Table(rows)}, nil
+	limit, _ := downmark.ResultLimit(ctx)
+	b := limitbuf.New(limit)
+	if err := mdutil.WriteTable(b, rows); err != nil {
+		if errors.Is(err, limitbuf.ErrTooLarge) {
+			return nil, fmt.Errorf("%w: CSV result exceeds %d-byte limit", downmark.ErrResultTooLarge, limit)
+		}
+		return nil, err
+	}
+	return &downmark.Result{Markdown: b.String()}, nil
 }
 
 // sniffDelimiter picks the delimiter that yields the most columns with a

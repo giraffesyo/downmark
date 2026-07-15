@@ -88,9 +88,19 @@ func isOOXML(mimeType string) bool {
 	return strings.HasPrefix(mimeType, "application/vnd.openxmlformats-officedocument.")
 }
 
+func isZIP(mimeType string) bool {
+	switch strings.ToLower(mimeType) {
+	case "application/zip", "application/x-zip", "application/x-zip-compressed":
+		return true
+	default:
+		return false
+	}
+}
+
 // buildGuesses returns 1-2 ordered StreamInfo guesses combining caller hints
-// with content sniffing. Hints beat sniffing. It reads a prefix of rs and
-// leaves the stream at offset 0.
+// with content sniffing. Hints normally beat sniffing; positively identified
+// OOXML content beats a generic ZIP hint. It reads a prefix of rs and leaves
+// the stream at offset 0.
 func buildGuesses(rs io.ReadSeeker, base StreamInfo) ([]StreamInfo, error) {
 	prefix, err := readPrefix(rs)
 	if err != nil {
@@ -127,6 +137,14 @@ func buildGuesses(rs io.ReadSeeker, base StreamInfo) ([]StreamInfo, error) {
 			g.Charset = textenc.DetectCharset(prefix)
 		}
 		return g
+	}
+
+	// A .zip hint is commonly attached to OOXML downloads because DOCX,
+	// XLSX, and PPTX are ZIP containers. Put a positively sniffed Office
+	// format first so its specific converter gets the first attempt; retain
+	// the archive interpretation as a fallback if that conversion fails.
+	if isZIP(enhanced.MIMEType) && isOOXML(sniffed.MIMEType) {
+		return []StreamInfo{charsetFor(sniffed), charsetFor(enhanced)}, nil
 	}
 
 	compatible := enhanced.MIMEType == "" ||

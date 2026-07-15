@@ -22,6 +22,7 @@ native dependencies.
 | PPTX | `convert/pptx` | Slides in order with `<!-- Slide number: N -->` markers, position-based reading order, tables, chart data tables, image alt text, speaker notes. |
 | HTML | `convert/html` | DOM sanitization (scripts/styles dropped, `javascript:` links unwrapped, data URIs truncated) + GFM tables. |
 | CSV | `convert/csv` | Charset-aware (incl. Shift-JIS/cp932), delimiter sniffing (`, ; \t \|`). |
+| ZIP | `convert/zipfile` | Supported members are converted through the engine and emitted under per-file headings; hard limits cap compressed archives at 64 MiB, total member data at 128 MiB (10 MiB/member), conversion at 64 members, scanning at 1,024 entries, and output at 32 MiB. |
 | Plain text | built into core | Charset-detected passthrough (UTF-8/16, legacy encodings). |
 
 ## Install the CLI
@@ -126,8 +127,15 @@ reconstruction, and hardening against malformed and hostile files.
   garbage; borderless table-layout reconstruction is not yet implemented.
 - DOCX: headers/footers, footnotes, comments, and text boxes are skipped;
   equations render as plain text; nested tables flatten to text.
-- Encrypted Office files and PDFs are not decrypted.
-- Non-seekable inputs (stdin, network streams) are buffered fully in memory.
+- Encrypted Office files, PDFs, and ZIP archives are not decrypted.
+- OOXML archives (DOCX/XLSX/PPTX) are capped at 64 MiB compressed, 128 MiB
+  total uncompressed, 16 MiB per decompressed part, and 1,024 entries; XML
+  structure is also bounded to prevent small parts from creating huge trees.
+- ZIP archives nested inside ZIP archives are skipped; archive conversion does
+  not recurse.
+- Non-seekable inputs (stdin, network streams) are buffered in memory. Matching
+  ZIP and Office inputs are rejected while buffering at their 64 MiB hard
+  limit; formats without an input-limit converter remain fully buffered.
 
 ## Development
 

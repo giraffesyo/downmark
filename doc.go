@@ -10,6 +10,7 @@
 //   - github.com/giraffesyo/downmark/convert/pptx
 //   - github.com/giraffesyo/downmark/convert/html
 //   - github.com/giraffesyo/downmark/convert/csv
+//   - github.com/giraffesyo/downmark/convert/zipfile
 //
 // The github.com/giraffesyo/downmark/all package wires every converter
 // into one engine for consumers who want the full matrix. Standalone PDF
@@ -31,6 +32,13 @@
 //	res, err := e.Convert(ctx, resp.Body, downmark.StreamInfo{
 //		MIMEType: resp.Header.Get("Content-Type"),
 //	})
+//
+// Derive the context with WithResultLimit to reject oversized Markdown before
+// the engine performs final normalization. Converters can inspect ResultLimit
+// to enforce the same budget while constructing their result.
+// Converters with hard compressed-input budgets can also implement
+// InputLimitConverter so non-seekable streams are bounded while the engine
+// buffers them.
 //
 // # Custom converters
 //

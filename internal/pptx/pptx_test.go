@@ -47,7 +47,7 @@ func minimalDeck(slide1 string, extra map[string]string) map[string]string {
 func convertDeck(t *testing.T, parts map[string]string) string {
 	t.Helper()
 	data, size := buildPptx(t, parts)
-	md, _, err := Convert(bytes.NewReader(data), size)
+	md, _, err := Convert(t.Context(), bytes.NewReader(data), size, 0)
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestTitleAndBodyOrdering(t *testing.T) {
   <p:txBody><a:p><a:r><a:t>Deck Title</a:t></a:r></a:p></p:txBody></p:sp>
 </p:spTree></p:cSld></p:sld>`
 	data, size := buildPptx(t, minimalDeck(slide, nil))
-	md, title, err := Convert(bytes.NewReader(data), size)
+	md, title, err := Convert(t.Context(), bytes.NewReader(data), size, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestNotes(t *testing.T) {
 
 func TestMissingPartsError(t *testing.T) {
 	data, size := buildPptx(t, map[string]string{"foo.txt": "not a pptx"})
-	if _, _, err := Convert(bytes.NewReader(data), size); err == nil {
+	if _, _, err := Convert(t.Context(), bytes.NewReader(data), size, 0); err == nil {
 		t.Error("expected error for archive without presentation.xml")
 	}
 }
@@ -164,8 +164,8 @@ func FuzzConvert(f *testing.F) {
 	seed, _ := buildPptx(f, minimalDeck(slide, nil))
 	f.Add(seed)
 	f.Add([]byte("PK\x03\x04 garbage"))
-	f.Fuzz(func(_ *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic; errors are fine.
-		_, _, _ = Convert(bytes.NewReader(data), int64(len(data)))
+		_, _, _ = Convert(t.Context(), bytes.NewReader(data), int64(len(data)), 0)
 	})
 }

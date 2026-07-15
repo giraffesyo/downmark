@@ -1,25 +1,35 @@
 package docx
 
+import (
+	"context"
+	"errors"
+
+	"github.com/giraffesyo/downmark/internal/ooxml"
+)
+
 type numberingMap struct {
 	numToAbstract map[string]string
 	abstractFmt   map[string]map[string]string // abstractNumId → ilvl → numFmt
 }
 
-func parseNumbering(data []byte) *numberingMap {
+func parseNumbering(ctx context.Context, data []byte) (*numberingMap, error) {
 	nm := &numberingMap{
 		numToAbstract: map[string]string{},
 		abstractFmt:   map[string]map[string]string{},
 	}
 	if data == nil {
-		return nm
+		return nm, nil
 	}
-	root, err := decodeTree(data)
+	root, err := decodeTree(ctx, data)
 	if err != nil {
-		return nm
+		if ctx.Err() != nil || errors.Is(err, ooxml.ErrXMLComplexity) {
+			return nil, err
+		}
+		return nm, nil
 	}
 	numbering := root.child("numbering")
 	if numbering == nil {
-		return nm
+		return nm, nil
 	}
 	for _, n := range numbering.kids {
 		switch n.name {
@@ -41,7 +51,7 @@ func parseNumbering(data []byte) *numberingMap {
 			}
 		}
 	}
-	return nm
+	return nm, nil
 }
 
 // listKind resolves a numbering reference. ok is false when the numId does

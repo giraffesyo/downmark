@@ -5,7 +5,8 @@
 package docx
 
 import (
-	"archive/zip"
+	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -14,6 +15,9 @@ import (
 	"mime"
 	"path"
 	"strings"
+
+	"github.com/giraffesyo/downmark/internal/limitbuf"
+	"github.com/giraffesyo/downmark/internal/ooxml"
 )
 
 // Options controls conversion behavior.
@@ -21,26 +25,41 @@ type Options struct {
 	// KeepDataURIs embeds images as full data: URIs instead of filename
 	// placeholders.
 	KeepDataURIs bool
+	// OutputLimit bounds the intermediate HTML rendering in bytes. A
+	// non-positive value is unlimited.
+	OutputLimit int
 }
 
 // Convert parses the archive and returns intermediate HTML plus the
 // document title ("" if none).
-func Convert(ra io.ReaderAt, size int64, opts Options) (html string, title string, err error) {
-	zr, err := zip.NewReader(ra, size)
+func Convert(ctx context.Context, ra io.ReaderAt, size int64, opts Options) (html string, title string, err error) {
+	archive, err := ooxml.Open(ctx, ra, size)
 	if err != nil {
 		return "", "", fmt.Errorf("docx: not a zip archive: %w", err)
 	}
-	d := &doc{zr: zr, opts: opts}
+	d := &doc{archive: archive, opts: opts}
 
-	d.styles = parseStyles(d.readPart("word/styles.xml"))
-	d.numbering = parseNumbering(d.readPart("word/numbering.xml"))
-	d.rels = parseRels(d.readPart("word/_rels/document.xml.rels"))
+	d.styles, err = parseStyles(ctx, d.readPart(ctx, "word/styles.xml"))
+	if err != nil {
+		return "", "", err
+	}
+	d.numbering, err = parseNumbering(ctx, d.readPart(ctx, "word/numbering.xml"))
+	if err != nil {
+		return "", "", err
+	}
+	d.rels, err = parseRels(ctx, d.readPart(ctx, "word/_rels/document.xml.rels"))
+	if err != nil {
+		return "", "", err
+	}
 
-	data := d.readPart("word/document.xml")
+	data := d.readPart(ctx, "word/document.xml")
+	if d.err != nil {
+		return "", "", d.err
+	}
 	if data == nil {
 		return "", "", errors.New("docx: missing word/document.xml")
 	}
-	root, err := decodeTree(data)
+	root, err := decodeTree(ctx, data)
 	if err != nil {
 		return "", "", fmt.Errorf("docx: parse word/document.xml: %w", err)
 	}
@@ -49,15 +68,25 @@ func Convert(ra io.ReaderAt, size int64, opts Options) (html string, title strin
 		return "", "", errors.New("docx: word/document.xml has no body")
 	}
 
-	c := &conv{doc: d}
-	c.block(body)
+	c := &conv{doc: d, b: limitbuf.New(opts.OutputLimit)}
+	c.block(ctx, body)
 	c.closeLists()
+	if d.err != nil {
+		return "", "", d.err
+	}
+	if err := c.b.Err(); err != nil {
+		return "", "", err
+	}
+	if c.err != nil {
+		return "", "", c.err
+	}
 	return c.b.String(), c.title, nil
 }
 
 type doc struct {
-	zr        *zip.Reader
+	archive   *ooxml.Archive
 	opts      Options
+	err       error
 	styles    *styleMap
 	numbering *numberingMap
 	rels      map[string]rel
@@ -65,27 +94,24 @@ type doc struct {
 
 // readPart returns a zip part's bytes, or nil if absent (most parts are
 // optional).
-func (d *doc) readPart(name string) []byte {
-	for _, f := range d.zr.File {
-		if f.Name == name {
-			rc, err := f.Open()
-			if err != nil {
-				return nil
-			}
-			defer func() { _ = rc.Close() }() // read-only handle
-			data, err := io.ReadAll(rc)
-			if err != nil {
-				return nil
-			}
-			return data
-		}
+func (d *doc) readPart(ctx context.Context, name string) []byte {
+	if d.err != nil {
+		return nil
 	}
-	return nil
+	data, found, err := d.archive.Read(ctx, name)
+	if err != nil {
+		d.err = fmt.Errorf("docx: read %s: %w", name, err)
+		return nil
+	}
+	if !found {
+		return nil
+	}
+	return data
 }
 
 // imageSrc resolves a relationship ID to an <img> src: the media file's
 // base name, or a full data URI when KeepDataURIs is set.
-func (d *doc) imageSrc(relID string) string {
+func (d *doc) imageSrc(ctx context.Context, relID string) string {
 	r, ok := d.rels[relID]
 	if !ok {
 		return ""
@@ -97,7 +123,7 @@ func (d *doc) imageSrc(relID string) string {
 	if !d.opts.KeepDataURIs {
 		return path.Base(target)
 	}
-	data := d.readPart(target)
+	data := d.readPart(ctx, target)
 	if data == nil {
 		return path.Base(target)
 	}
@@ -117,11 +143,15 @@ type node struct {
 	text  strings.Builder
 }
 
-func decodeTree(data []byte) (*node, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+func decodeTree(ctx context.Context, data []byte) (*node, error) {
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	root := &node{name: "#root"}
 	stack := []*node{root}
+	elements, attributes := 0, 0
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		tok, err := dec.Token()
 		if errors.Is(err, io.EOF) {
 			break
@@ -131,6 +161,11 @@ func decodeTree(data []byte) (*node, error) {
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
+			elements++
+			attributes += len(t.Attr)
+			if elements > ooxml.MaxXMLElements || attributes > ooxml.MaxXMLAttributes || len(stack) > ooxml.MaxXMLDepth {
+				return nil, fmt.Errorf("docx: %w", ooxml.ErrXMLComplexity)
+			}
 			n := &node{name: t.Name.Local, attrs: t.Attr}
 			parent := stack[len(stack)-1]
 			parent.kids = append(parent.kids, n)

@@ -3,6 +3,7 @@
 package htmlmd
 
 import (
+	"context"
 	"io"
 	"net/url"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/table"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
+
+	"github.com/giraffesyo/downmark/internal/ctxio"
 )
 
 // Options controls conversion behavior.
@@ -24,21 +27,24 @@ type Options struct {
 
 // Convert parses HTML from r (which must already yield UTF-8) and returns
 // Markdown plus the <title> text ("" if absent).
-func Convert(r io.Reader, opts Options) (md string, title string, err error) {
-	doc, err := html.Parse(r)
+func Convert(ctx context.Context, r io.Reader, opts Options) (md string, title string, err error) {
+	doc, err := html.Parse(ctxio.NewReader(ctx, r))
 	if err != nil {
 		return "", "", err
 	}
-	return convertDoc(doc, opts)
+	return convertDoc(ctx, doc, opts)
 }
 
 // ConvertString converts an HTML string (UTF-8).
-func ConvertString(s string, opts Options) (md string, title string, err error) {
-	return Convert(strings.NewReader(s), opts)
+func ConvertString(ctx context.Context, s string, opts Options) (md string, title string, err error) {
+	return Convert(ctx, strings.NewReader(s), opts)
 }
 
-func convertDoc(doc *html.Node, opts Options) (md string, title string, err error) {
-	title = applyPolicy(doc, opts)
+func convertDoc(ctx context.Context, doc *html.Node, opts Options) (md string, title string, err error) {
+	title, err = applyPolicy(ctx, doc, opts)
+	if err != nil {
+		return "", "", err
+	}
 
 	root := doc
 	if body := findElement(doc, atom.Body); body != nil {
@@ -53,7 +59,7 @@ func convertDoc(doc *html.Node, opts Options) (md string, title string, err erro
 			strikethrough.NewStrikethroughPlugin(),
 		),
 	)
-	out, err := conv.ConvertNode(root)
+	out, err := conv.ConvertNode(root, converter.WithContext(ctx))
 	if err != nil {
 		return "", "", err
 	}
@@ -63,10 +69,13 @@ func convertDoc(doc *html.Node, opts Options) (md string, title string, err erro
 // applyPolicy mutates the DOM in place — dropping script/style/noscript and
 // comments, unwrapping unsafe links, truncating data: image URIs — and
 // returns the document title.
-func applyPolicy(doc *html.Node, opts Options) (title string) {
-	var walk func(n *html.Node)
-	walk = func(n *html.Node) {
+func applyPolicy(ctx context.Context, doc *html.Node, opts Options) (title string, err error) {
+	var walk func(n *html.Node) error
+	walk = func(n *html.Node) error {
 		for c := n.FirstChild; c != nil; {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			next := c.NextSibling
 			switch c.Type {
 			case html.CommentNode:
@@ -79,29 +88,42 @@ func applyPolicy(doc *html.Node, opts Options) (title string) {
 					if title == "" {
 						title = collapseSpace(textContent(c))
 					}
-					walk(c)
+					if err := walk(c); err != nil {
+						return err
+					}
 				case atom.A:
 					if !safeLink(attr(c, "href")) {
 						unwrap(n, c)
 					} else {
-						walk(c)
+						if err := walk(c); err != nil {
+							return err
+						}
 					}
 				case atom.Img:
 					if !opts.KeepDataURIs {
 						truncateDataURI(c)
 					}
-					walk(c)
+					if err := walk(c); err != nil {
+						return err
+					}
 				default:
-					walk(c)
+					if err := walk(c); err != nil {
+						return err
+					}
 				}
 			default:
-				walk(c)
+				if err := walk(c); err != nil {
+					return err
+				}
 			}
 			c = next
 		}
+		return nil
 	}
-	walk(doc)
-	return title
+	if err := walk(doc); err != nil {
+		return "", err
+	}
+	return title, nil
 }
 
 // safeLink allows relative URLs and the http, https, file, and mailto

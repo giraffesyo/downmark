@@ -1,6 +1,8 @@
 package downmark_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +11,42 @@ import (
 
 	"github.com/giraffesyo/pdf/pdftest"
 )
+
+func TestWriteSyntheticZIPFixture(t *testing.T) {
+	if !*updateGolden {
+		t.Skip("run with -update to regenerate the fixture")
+	}
+	writeSyntheticZIPFixture(t)
+}
+
+func writeSyntheticZIPFixture(t *testing.T) {
+	t.Helper()
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	members := []struct {
+		name string
+		data []byte
+	}{
+		{name: "notes.txt", data: []byte("Synthetic archive notes.\n")},
+		{name: "data/people.csv", data: []byte("name,role\nAda,Engineer\nGrace,Admiral\n")},
+		{name: "image.png", data: []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")},
+	}
+	for _, member := range members {
+		entry, err := w.Create(member.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(member.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("testdata", "test.zip"), buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // TestWriteSyntheticFixture regenerates testdata/synthetic.pdf when run
 // with -update. The fixture reproduces real-world PDF structure (all

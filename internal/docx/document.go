@@ -1,17 +1,21 @@
 package docx
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"strconv"
 	"strings"
+
+	"github.com/giraffesyo/downmark/internal/limitbuf"
 )
 
 // conv walks the document body and emits intermediate HTML.
 type conv struct {
 	doc   *doc
-	b     strings.Builder
+	b     *limitbuf.Buffer
 	title string
+	err   error
 
 	// lists tracks currently open <ul>/<ol> levels; each level may have an
 	// open <li> that wraps any nested sublist.
@@ -25,17 +29,21 @@ type openList struct {
 
 // block processes body-level children: paragraphs, tables, and containers
 // that wrap them.
-func (c *conv) block(n *node) {
+func (c *conv) block(ctx context.Context, n *node) {
 	for _, kid := range n.kids {
+		if err := ctx.Err(); err != nil {
+			c.err = err
+			return
+		}
 		switch kid.name {
 		case "p":
-			c.paragraph(kid)
+			c.paragraph(ctx, kid)
 		case "tbl":
 			c.closeLists()
-			c.table(kid)
+			c.table(ctx, kid)
 		case "sdt":
 			if content := kid.child("sdtContent"); content != nil {
-				c.block(content)
+				c.block(ctx, content)
 			}
 		case "sectPr":
 			// Section properties carry no content.
@@ -43,7 +51,7 @@ func (c *conv) block(n *node) {
 	}
 }
 
-func (c *conv) paragraph(p *node) {
+func (c *conv) paragraph(ctx context.Context, p *node) {
 	pPr := p.child("pPr")
 	styleID := ""
 	if pPr != nil {
@@ -52,7 +60,7 @@ func (c *conv) paragraph(p *node) {
 		}
 	}
 
-	inline := c.inlineHTML(p)
+	inline := c.inlineHTML(ctx, p)
 
 	// Heading?
 	level := c.doc.styles.headingLevel(styleID)
@@ -71,7 +79,7 @@ func (c *conv) paragraph(p *node) {
 		if c.title == "" && (c.doc.styles.isTitle(styleID) || level == 1) {
 			c.title = strings.TrimSpace(textOnly(p))
 		}
-		fmt.Fprintf(&c.b, "<h%d>%s</h%d>\n", level, inline, level)
+		c.writef("<h%d>%s</h%d>\n", level, inline, level)
 		return
 	}
 
@@ -98,7 +106,7 @@ func (c *conv) paragraph(p *node) {
 	if strings.TrimSpace(inline) == "" {
 		return
 	}
-	fmt.Fprintf(&c.b, "<p>%s</p>\n", inline)
+	c.writef("<p>%s</p>\n", inline)
 }
 
 // listItem adjusts the open-list stack to the item's level and emits it.
@@ -120,26 +128,26 @@ func (c *conv) listItem(ilvl int, ordered bool, inner string) {
 		if ordered {
 			tag = "ol"
 		}
-		c.b.WriteString("<" + tag + ">\n")
+		c.writeString("<" + tag + ">\n")
 		c.lists = append(c.lists, openList{ordered: ordered})
 	}
 	top := &c.lists[len(c.lists)-1]
 	if top.liOpen {
-		c.b.WriteString("</li>\n")
+		c.writeString("</li>\n")
 	}
-	c.b.WriteString("<li>" + inner)
+	c.writeString("<li>" + inner)
 	top.liOpen = true
 }
 
 func (c *conv) popList() {
 	top := c.lists[len(c.lists)-1]
 	if top.liOpen {
-		c.b.WriteString("</li>\n")
+		c.writeString("</li>\n")
 	}
 	if top.ordered {
-		c.b.WriteString("</ol>\n")
+		c.writeString("</ol>\n")
 	} else {
-		c.b.WriteString("</ul>\n")
+		c.writeString("</ul>\n")
 	}
 	c.lists = c.lists[:len(c.lists)-1]
 	// The enclosing <li> (if any) wrapped this sublist; it stays open until
@@ -153,24 +161,28 @@ func (c *conv) closeLists() {
 }
 
 // inlineHTML renders a paragraph's inline content (runs, links, images).
-func (c *conv) inlineHTML(p *node) string {
+func (c *conv) inlineHTML(ctx context.Context, p *node) string {
 	var b strings.Builder
-	c.inlineChildren(&b, p)
+	c.inlineChildren(ctx, &b, p)
 	return b.String()
 }
 
-func (c *conv) inlineChildren(b *strings.Builder, n *node) {
+func (c *conv) inlineChildren(ctx context.Context, b *strings.Builder, n *node) {
 	for _, kid := range n.kids {
+		if err := ctx.Err(); err != nil {
+			c.err = err
+			return
+		}
 		switch kid.name {
 		case "r":
-			c.run(b, kid)
+			c.run(ctx, b, kid)
 		case "hyperlink":
-			c.hyperlink(b, kid)
+			c.hyperlink(ctx, b, kid)
 		case "ins", "smartTag", "fldSimple":
-			c.inlineChildren(b, kid)
+			c.inlineChildren(ctx, b, kid)
 		case "sdt":
 			if content := kid.child("sdtContent"); content != nil {
-				c.inlineChildren(b, content)
+				c.inlineChildren(ctx, b, content)
 			}
 		case "oMath", "oMathPara":
 			// Math degrades to its plain text (OMML → LaTeX is a later
@@ -189,7 +201,7 @@ func (c *conv) inlineChildren(b *strings.Builder, n *node) {
 	}
 }
 
-func (c *conv) hyperlink(b *strings.Builder, link *node) {
+func (c *conv) hyperlink(ctx context.Context, b *strings.Builder, link *node) {
 	href := ""
 	if id := link.attr("id"); id != "" {
 		if r, ok := c.doc.rels[id]; ok && r.external {
@@ -198,15 +210,15 @@ func (c *conv) hyperlink(b *strings.Builder, link *node) {
 	}
 	if href == "" {
 		// Internal anchors degrade to plain content.
-		c.inlineChildren(b, link)
+		c.inlineChildren(ctx, b, link)
 		return
 	}
 	b.WriteString(`<a href="` + html.EscapeString(href) + `">`)
-	c.inlineChildren(b, link)
+	c.inlineChildren(ctx, b, link)
 	b.WriteString("</a>")
 }
 
-func (c *conv) run(b *strings.Builder, r *node) {
+func (c *conv) run(ctx context.Context, b *strings.Builder, r *node) {
 	var opening, closing string
 	if rPr := r.child("rPr"); rPr != nil {
 		if flagOn(rPr, "b") {
@@ -240,7 +252,7 @@ func (c *conv) run(b *strings.Builder, r *node) {
 		case "noBreakHyphen":
 			content.WriteString("-")
 		case "drawing", "pict", "object":
-			c.image(&content, kid)
+			c.image(ctx, &content, kid)
 		}
 	}
 	if content.Len() == 0 {
@@ -266,7 +278,7 @@ func flagOn(rPr *node, name string) bool {
 }
 
 // image renders the first embedded picture found under a drawing node.
-func (c *conv) image(b *strings.Builder, drawing *node) {
+func (c *conv) image(ctx context.Context, b *strings.Builder, drawing *node) {
 	var embed, alt string
 	drawing.eachDescendant(func(d *node) {
 		switch d.name {
@@ -286,21 +298,25 @@ func (c *conv) image(b *strings.Builder, drawing *node) {
 	if embed == "" {
 		return
 	}
-	src := c.doc.imageSrc(embed)
+	src := c.doc.imageSrc(ctx, embed)
 	if src == "" {
 		return
 	}
 	fmt.Fprintf(b, `<img src="%s" alt="%s"/>`, html.EscapeString(src), html.EscapeString(alt))
 }
 
-func (c *conv) table(t *node) {
-	c.b.WriteString("<table>\n")
+func (c *conv) table(ctx context.Context, t *node) {
+	c.writeString("<table>\n")
 	firstRow := true
 	for _, tr := range t.kids {
+		if err := ctx.Err(); err != nil {
+			c.err = err
+			return
+		}
 		if tr.name != "tr" {
 			continue
 		}
-		c.b.WriteString("<tr>")
+		c.writeString("<tr>")
 		tag := "td"
 		if firstRow {
 			tag = "th"
@@ -323,29 +339,41 @@ func (c *conv) table(t *node) {
 			}
 			content := ""
 			if !merged {
-				content = c.cellHTML(tc)
+				content = c.cellHTML(ctx, tc)
 			}
-			c.b.WriteString("<" + tag + ">" + content + "</" + tag + ">")
+			c.writeString("<" + tag + ">" + content + "</" + tag + ">")
 			for range span - 1 {
-				c.b.WriteString("<" + tag + "></" + tag + ">")
+				c.writeString("<" + tag + "></" + tag + ">")
 			}
 		}
-		c.b.WriteString("</tr>\n")
+		c.writeString("</tr>\n")
 		firstRow = false
 	}
-	c.b.WriteString("</table>\n")
+	c.writeString("</table>\n")
+}
+
+func (c *conv) writeString(s string) {
+	_, _ = c.b.WriteString(s) // Buffer retains the size error for Convert.
+}
+
+func (c *conv) writef(format string, args ...any) {
+	_, _ = fmt.Fprintf(c.b, format, args...) // Buffer retains the size error for Convert.
 }
 
 // cellHTML renders a table cell: its paragraphs joined by <br/>; nested
 // tables are flattened to their text.
-func (c *conv) cellHTML(tc *node) string {
+func (c *conv) cellHTML(ctx context.Context, tc *node) string {
 	var parts []string
 	var walk func(n *node)
 	walk = func(n *node) {
+		if err := ctx.Err(); err != nil {
+			c.err = err
+			return
+		}
 		for _, kid := range n.kids {
 			switch kid.name {
 			case "p":
-				if inner := c.inlineHTML(kid); strings.TrimSpace(inner) != "" {
+				if inner := c.inlineHTML(ctx, kid); strings.TrimSpace(inner) != "" {
 					parts = append(parts, inner)
 				}
 			case "tbl":
