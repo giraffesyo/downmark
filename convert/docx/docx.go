@@ -6,12 +6,15 @@ package docx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/giraffesyo/downmark"
 	"github.com/giraffesyo/downmark/internal/docx"
 	"github.com/giraffesyo/downmark/internal/htmlmd"
+	"github.com/giraffesyo/downmark/internal/limitbuf"
+	"github.com/giraffesyo/downmark/internal/ooxml"
 	"github.com/giraffesyo/downmark/internal/readerat"
 )
 
@@ -36,6 +39,8 @@ type converter struct {
 
 func (converter) Name() string { return "docx" }
 
+func (converter) InputLimit() int64 { return ooxml.MaxArchiveBytes }
+
 func (converter) Accepts(info downmark.StreamInfo) bool {
 	return info.Matches(
 		[]string{".docx"},
@@ -43,24 +48,41 @@ func (converter) Accepts(info downmark.StreamInfo) bool {
 	)
 }
 
-func (c converter) Convert(_ context.Context, input io.ReadSeeker, _ downmark.StreamInfo) (res *downmark.Result, err error) {
+func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.StreamInfo) (res *downmark.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			res, err = nil, fmt.Errorf("parse failure: %v", r)
 		}
 	}()
-	ra, size, err := readerat.From(input)
+	ra, size, err := readerat.FromLimit(input, ooxml.MaxArchiveBytes)
+	if errors.Is(err, readerat.ErrTooLarge) {
+		return nil, fmt.Errorf("%w: docx archive is %d bytes; limit is %d", downmark.ErrInputTooLarge, size, ooxml.MaxArchiveBytes)
+	}
 	if err != nil {
 		return nil, err
 	}
 	keep := c.opts.KeepDataURIs
-	intermediate, title, err := docx.Convert(ra, size, docx.Options{KeepDataURIs: keep})
+	resultLimit, _ := downmark.ResultLimit(ctx)
+	intermediate, title, err := docx.Convert(ctx, ra, size, docx.Options{
+		KeepDataURIs: keep,
+		OutputLimit:  resultLimit,
+	})
+	if errors.Is(err, limitbuf.ErrTooLarge) {
+		return nil, docxResultLimitError(resultLimit)
+	}
 	if err != nil {
 		return nil, err
 	}
-	md, _, err := htmlmd.ConvertString(intermediate, htmlmd.Options{KeepDataURIs: keep})
+	md, _, err := htmlmd.ConvertString(ctx, intermediate, htmlmd.Options{KeepDataURIs: keep})
 	if err != nil {
 		return nil, err
+	}
+	if resultLimit > 0 && len(md) > resultLimit {
+		return nil, docxResultLimitError(resultLimit)
 	}
 	return &downmark.Result{Markdown: md, Title: title}, nil
+}
+
+func docxResultLimitError(limit int) error {
+	return fmt.Errorf("%w: docx result exceeds %d-byte limit", downmark.ErrResultTooLarge, limit)
 }

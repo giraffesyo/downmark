@@ -15,4 +15,5 @@ License, Copyright (c) Microsoft Corporation:
 - `test_mskanji.csv`
 - `equations.docx`
 
-All other files in this directory are original to this project.
+All other files in this directory are original to this project. In particular,
+`test.zip` is generated from synthetic content by `fixture_gen_test.go`.

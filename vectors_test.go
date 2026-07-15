@@ -1,7 +1,7 @@
 package downmark_test
 
 import (
-	"context"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,7 +152,7 @@ func head(s string, n int) string {
 func TestVectorsConvertFile(t *testing.T) {
 	for _, v := range vectors {
 		t.Run(v.file, func(t *testing.T) {
-			res, err := all.ConvertFile(context.Background(), filepath.Join("testdata", v.file))
+			res, err := all.ConvertFile(t.Context(), filepath.Join("testdata", v.file))
 			checkVector(t, v, res, err)
 		})
 	}
@@ -167,7 +167,7 @@ func TestVectorsWithHints(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = f.Close() }() // read-only handle
-			res, err := all.Convert(context.Background(), f, v.hints)
+			res, err := all.Convert(t.Context(), f, v.hints)
 			checkVector(t, v, res, err)
 		})
 	}
@@ -182,8 +182,25 @@ func TestVectorsNoHints(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			res, err := all.Convert(context.Background(), strings.NewReader(string(data)), downmark.StreamInfo{})
+			res, err := all.Convert(t.Context(), strings.NewReader(string(data)), downmark.StreamInfo{})
 			checkVector(t, v, res, err)
 		})
+	}
+}
+
+func TestXLSXContentWithZipHintUsesOfficeConverter(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "test.xlsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := all.Convert(t.Context(), bytes.NewReader(data), downmark.StreamInfo{Extension: ".zip"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if !strings.Contains(res.Markdown, "6ff4173b-42a5-4784-9b19-f49caff4d93d") {
+		t.Error("XLSX table output missing")
+	}
+	if strings.Contains(res.Markdown, "## File:") {
+		t.Errorf("XLSX was walked as a generic archive:\n%s", head(res.Markdown, 1000))
 	}
 }

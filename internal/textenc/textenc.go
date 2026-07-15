@@ -3,6 +3,7 @@ package textenc
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -15,6 +16,9 @@ import (
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
+
+// ErrTooLarge reports that decoded UTF-8 exceeded a requested byte limit.
+var ErrTooLarge = errors.New("decoded text exceeds size limit")
 
 // DetectCharset guesses the charset of prefix (a sample of a text stream).
 // It returns a lowercase IANA-style name and falls back to "utf-8".
@@ -134,13 +138,25 @@ func NewReader(r io.Reader, charset string) (io.Reader, error) {
 // DecodeAll reads all of r decoded from the named charset. If the charset is
 // unknown, the raw bytes are returned as-is (best effort).
 func DecodeAll(r io.Reader, charset string) (string, error) {
+	return DecodeAllLimit(r, charset, 0)
+}
+
+// DecodeAllLimit is like DecodeAll but stops after maxBytes of decoded UTF-8.
+// A non-positive limit is unlimited.
+func DecodeAllLimit(r io.Reader, charset string, maxBytes int) (string, error) {
 	dec, err := NewReader(r, charset)
 	if err != nil {
 		dec = r
 	}
+	if maxBytes > 0 {
+		dec = io.LimitReader(dec, int64(maxBytes)+1)
+	}
 	data, err := io.ReadAll(dec)
 	if err != nil {
 		return "", err
+	}
+	if maxBytes > 0 && len(data) > maxBytes {
+		return "", ErrTooLarge
 	}
 	return string(data), nil
 }

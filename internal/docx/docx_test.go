@@ -41,7 +41,7 @@ func docWith(body string, extra map[string]string) map[string]string {
 func convertBody(t *testing.T, body string, extra map[string]string) string {
 	t.Helper()
 	data, size := buildDocx(t, docWith(body, extra))
-	html, _, err := Convert(bytes.NewReader(data), size, Options{})
+	html, _, err := Convert(t.Context(), bytes.NewReader(data), size, Options{})
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestEscaping(t *testing.T) {
 func TestTitleExtraction(t *testing.T) {
 	body := p("Title", "My Document") + p("", "body text")
 	data, size := buildDocx(t, docWith(body, map[string]string{"word/styles.xml": stylesXML}))
-	_, title, err := Convert(bytes.NewReader(data), size, Options{})
+	_, title, err := Convert(t.Context(), bytes.NewReader(data), size, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,8 +211,8 @@ func FuzzConvert(f *testing.F) {
 	})
 	f.Add(seed)
 	f.Add([]byte("PK\x03\x04 garbage"))
-	f.Fuzz(func(_ *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic; errors are fine.
-		_, _, _ = Convert(bytes.NewReader(data), int64(len(data)), Options{})
+		_, _, _ = Convert(t.Context(), bytes.NewReader(data), int64(len(data)), Options{})
 	})
 }

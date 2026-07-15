@@ -1,7 +1,6 @@
 package downmark_test
 
 import (
-	"context"
 	"flag"
 	"os"
 	"path/filepath"
@@ -19,13 +18,17 @@ var goldenFiles = []string{
 	"sample.html",
 	"test_mskanji.csv",
 	"test.xlsx",
+	"test.zip",
 	"synthetic.pdf",
 }
 
 func TestGolden(t *testing.T) {
+	if *updateGolden {
+		writeSyntheticZIPFixture(t)
+	}
 	for _, name := range goldenFiles {
 		t.Run(name, func(t *testing.T) {
-			res, err := all.ConvertFile(context.Background(), filepath.Join("testdata", name))
+			res, err := all.ConvertFile(t.Context(), filepath.Join("testdata", name))
 			if err != nil {
 				t.Fatalf("convert: %v", err)
 			}
@@ -51,7 +54,7 @@ func TestGolden(t *testing.T) {
 func TestKeepDataURIs(t *testing.T) {
 	path := filepath.Join("testdata", "test.docx")
 
-	res, err := all.ConvertFile(context.Background(), path)
+	res, err := all.ConvertFile(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +63,7 @@ func TestKeepDataURIs(t *testing.T) {
 	}
 
 	e := all.New(all.Options{KeepDataURIs: true})
-	res, err = e.ConvertFile(context.Background(), path)
+	res, err = e.ConvertFile(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"math"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/giraffesyo/downmark/internal/limitbuf"
 	"github.com/giraffesyo/downmark/internal/mdutil"
 )
 
@@ -167,17 +169,20 @@ type item struct {
 	md   string
 }
 
-func (d *deck) convertSlide(slidePath string) (md string, title string, err error) {
+func (d *deck) convertSlide(ctx context.Context, slidePath string) (md string, title string, err error) {
 	var sld slideXML
-	if err := d.parseXML(slidePath, &sld); err != nil {
+	if err := d.parseXML(ctx, slidePath, &sld); err != nil {
 		return "", "", err
 	}
-	rels, err := d.parseRels(relsPathFor(slidePath))
+	rels, err := d.parseRels(ctx, relsPathFor(slidePath))
 	if err != nil {
 		return "", "", err
 	}
 
-	items, title := d.renderTree(sld.CSld.SpTree, slidePath, rels)
+	items, title := d.renderTree(ctx, sld.CSld.SpTree, slidePath, rels)
+	if d.err != nil {
+		return "", "", d.err
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].y != items[j].y {
 			return items[i].y < items[j].y
@@ -185,16 +190,25 @@ func (d *deck) convertSlide(slidePath string) (md string, title string, err erro
 		return items[i].x < items[j].x
 	})
 
-	var b strings.Builder
+	b := limitbuf.New(d.outputLimit)
 	for _, it := range items {
-		b.WriteString(it.md)
-		b.WriteString("\n\n")
+		if _, err := b.WriteString(it.md); err != nil {
+			return "", "", err
+		}
+		if _, err := b.WriteString("\n\n"); err != nil {
+			return "", "", err
+		}
 	}
 
-	if notes := d.slideNotes(slidePath, rels); notes != "" {
-		b.WriteString("### Notes:\n\n")
-		b.WriteString(notes)
-		b.WriteString("\n\n")
+	if notes := d.slideNotes(ctx, slidePath, rels); notes != "" {
+		for _, part := range []string{"### Notes:\n\n", notes, "\n\n"} {
+			if _, err := b.WriteString(part); err != nil {
+				return "", "", err
+			}
+		}
+	}
+	if d.err != nil {
+		return "", "", d.err
 	}
 	return b.String(), title, nil
 }
@@ -202,8 +216,12 @@ func (d *deck) convertSlide(slidePath string) (md string, title string, err erro
 // renderTree renders every shape in a tree into positioned items. Groups
 // become a single item positioned at the group's offset, with their
 // children sorted internally.
-func (d *deck) renderTree(tree shapeTree, slidePath string, rels map[string]string) (items []item, title string) {
+func (d *deck) renderTree(ctx context.Context, tree shapeTree, slidePath string, rels map[string]string) (items []item, title string) {
 	for _, sp := range tree.Shapes {
+		if err := ctx.Err(); err != nil {
+			d.err = err
+			return items, title
+		}
 		text := sp.TxBody.text()
 		if text == "" {
 			continue
@@ -236,17 +254,22 @@ func (d *deck) renderTree(tree shapeTree, slidePath string, rels map[string]stri
 		y, x := f.Xfrm.pos()
 		switch {
 		case f.Graphic.Data.Tbl != nil:
-			if md := renderTable(f.Graphic.Data.Tbl); md != "" {
+			md, err := renderTable(f.Graphic.Data.Tbl, d.outputLimit)
+			if err != nil {
+				d.err = err
+				continue
+			}
+			if md != "" {
 				items = append(items, item{y: y, x: x, md: md})
 			}
 		case f.Graphic.Data.Chart != nil:
-			md := d.renderChart(slidePath, rels[f.Graphic.Data.Chart.RID])
+			md := d.renderChart(ctx, slidePath, rels[f.Graphic.Data.Chart.RID])
 			items = append(items, item{y: y, x: x, md: md})
 		}
 	}
 
 	for _, g := range tree.Groups {
-		sub, subTitle := d.renderTree(g, slidePath, rels)
+		sub, subTitle := d.renderTree(ctx, g, slidePath, rels)
 		if title == "" {
 			title = subTitle
 		}
@@ -269,7 +292,7 @@ func (d *deck) renderTree(tree shapeTree, slidePath string, rels map[string]stri
 	return items, title
 }
 
-func renderTable(t *tbl) string {
+func renderTable(t *tbl, outputLimit int) (string, error) {
 	var rows [][]string
 	for _, tr := range t.Rows {
 		var row []string
@@ -278,7 +301,11 @@ func renderTable(t *tbl) string {
 		}
 		rows = append(rows, row)
 	}
-	return mdutil.Table(rows)
+	b := limitbuf.New(outputLimit)
+	if err := mdutil.WriteTable(b, rows); err != nil {
+		return "", err
+	}
+	return b.String(), nil
 }
 
 func (tb *txBody) paragraphsOrEmpty() []string {
@@ -289,14 +316,14 @@ func (tb *txBody) paragraphsOrEmpty() []string {
 }
 
 // slideNotes returns the text of the slide's notes page, if any.
-func (d *deck) slideNotes(slidePath string, rels map[string]string) string {
+func (d *deck) slideNotes(ctx context.Context, slidePath string, rels map[string]string) string {
 	for _, target := range rels {
 		if !strings.Contains(target, "notesSlide") {
 			continue
 		}
 		notesPath := resolveTarget(path.Dir(slidePath), target)
 		var sld slideXML
-		if err := d.parseXML(notesPath, &sld); err != nil {
+		if err := d.parseXML(ctx, notesPath, &sld); err != nil {
 			return ""
 		}
 		var bodyTexts, allTexts []string

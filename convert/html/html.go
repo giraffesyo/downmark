@@ -5,6 +5,7 @@ package html
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	xcharset "golang.org/x/net/html/charset"
@@ -43,7 +44,7 @@ func (converter) Accepts(info downmark.StreamInfo) bool {
 	)
 }
 
-func (c converter) Convert(_ context.Context, input io.ReadSeeker, info downmark.StreamInfo) (*downmark.Result, error) {
+func (c converter) Convert(ctx context.Context, input io.ReadSeeker, info downmark.StreamInfo) (*downmark.Result, error) {
 	var r io.Reader
 	if info.Charset != "" {
 		dec, err := textenc.NewReader(input, info.Charset)
@@ -59,9 +60,12 @@ func (c converter) Convert(_ context.Context, input io.ReadSeeker, info downmark
 		}
 		r = dec
 	}
-	md, title, err := htmlmd.Convert(r, htmlmd.Options{KeepDataURIs: c.opts.KeepDataURIs})
+	md, title, err := htmlmd.Convert(ctx, r, htmlmd.Options{KeepDataURIs: c.opts.KeepDataURIs})
 	if err != nil {
 		return nil, err
+	}
+	if limit, ok := downmark.ResultLimit(ctx); ok && len(md) > limit {
+		return nil, fmt.Errorf("%w: HTML result exceeds %d-byte limit", downmark.ErrResultTooLarge, limit)
 	}
 	return &downmark.Result{Markdown: md, Title: title}, nil
 }

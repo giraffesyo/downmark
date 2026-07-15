@@ -1,5 +1,5 @@
-// Command downmark converts documents (PDF, DOCX, XLSX, PPTX, HTML, CSV,
-// plain text) to Markdown.
+// Command downmark converts documents (PDF, DOCX, XLSX, PPTX, HTML, CSV, ZIP,
+// and plain text) to Markdown.
 //
 // Usage:
 //

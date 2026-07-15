@@ -5,12 +5,14 @@ package pdf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
 	gpdf "github.com/giraffesyo/pdf"
 
 	"github.com/giraffesyo/downmark"
+	"github.com/giraffesyo/downmark/internal/limitbuf"
 	"github.com/giraffesyo/downmark/internal/readerat"
 )
 
@@ -39,9 +41,32 @@ func (converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.St
 	if err != nil {
 		return nil, err
 	}
-	text := doc.Text()
+	limit, _ := downmark.ResultLimit(ctx)
+	b := limitbuf.New(limit)
+	for _, page := range doc.Pages {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		text := page.Text()
+		if text == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			if _, err := b.WriteString("\n\n"); err != nil {
+				return nil, pdfResultLimitError(limit)
+			}
+		}
+		if _, err := b.WriteString(text); err != nil {
+			return nil, pdfResultLimitError(limit)
+		}
+	}
+	text := b.String()
 	if strings.TrimSpace(text) == "" {
 		return nil, errNoText
 	}
 	return &downmark.Result{Markdown: text}, nil
+}
+
+func pdfResultLimitError(limit int) error {
+	return fmt.Errorf("%w: PDF result exceeds %d-byte limit", downmark.ErrResultTooLarge, limit)
 }

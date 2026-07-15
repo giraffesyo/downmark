@@ -1,7 +1,6 @@
 package pdf_test
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -14,7 +13,7 @@ func TestMalformedPDFDoesNotPanic(t *testing.T) {
 	e := downmark.New(downmark.WithoutBuiltins())
 	pdf.Register(e)
 	garbage := "%PDF-1.7\nthis is not a real pdf body at all\n%%EOF"
-	_, err := e.Convert(context.Background(), strings.NewReader(garbage), downmark.StreamInfo{Extension: ".pdf"})
+	_, err := e.Convert(t.Context(), strings.NewReader(garbage), downmark.StreamInfo{Extension: ".pdf"})
 	var convErr *downmark.ConversionError
 	if !errors.As(err, &convErr) {
 		t.Fatalf("err = %v, want *ConversionError (panic must be contained)", err)

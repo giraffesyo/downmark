@@ -1,12 +1,14 @@
 package pptx
 
 import (
+	"context"
 	"encoding/xml"
 	"path"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/giraffesyo/downmark/internal/limitbuf"
 	"github.com/giraffesyo/downmark/internal/mdutil"
 )
 
@@ -101,13 +103,13 @@ type cachePt struct {
 
 // renderChart parses the chart part and renders its title plus a data
 // table. A chart that cannot be parsed degrades to a placeholder.
-func (d *deck) renderChart(slidePath, target string) string {
+func (d *deck) renderChart(ctx context.Context, slidePath, target string) string {
 	const fallback = "[unsupported chart]"
 	if target == "" {
 		return fallback
 	}
 	var cs chartSpace
-	if err := d.parseXML(resolveTarget(path.Dir(slidePath), target), &cs); err != nil {
+	if err := d.parseXML(ctx, resolveTarget(path.Dir(slidePath), target), &cs); err != nil {
 		return fallback
 	}
 
@@ -164,5 +166,14 @@ func (d *deck) renderChart(slidePath, target string) string {
 		}
 		rows = append(rows, row)
 	}
-	return heading + "\n\n" + mdutil.Table(rows)
+	b := limitbuf.New(d.outputLimit)
+	if _, err := b.WriteString(heading + "\n\n"); err != nil {
+		d.err = err
+		return fallback
+	}
+	if err := mdutil.WriteTable(b, rows); err != nil {
+		d.err = err
+		return fallback
+	}
+	return b.String()
 }

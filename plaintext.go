@@ -2,8 +2,11 @@ package downmark
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 
+	"github.com/giraffesyo/downmark/internal/ctxio"
 	"github.com/giraffesyo/downmark/internal/textenc"
 )
 
@@ -24,8 +27,12 @@ func (*plainTextConverter) Accepts(info StreamInfo) bool {
 	)
 }
 
-func (*plainTextConverter) Convert(_ context.Context, input io.ReadSeeker, info StreamInfo) (*Result, error) {
-	text, err := textenc.DecodeAll(input, info.Charset)
+func (*plainTextConverter) Convert(ctx context.Context, input io.ReadSeeker, info StreamInfo) (*Result, error) {
+	limit, _ := ResultLimit(ctx)
+	text, err := textenc.DecodeAllLimit(ctxio.NewReader(ctx, input), info.Charset, limit)
+	if errors.Is(err, textenc.ErrTooLarge) {
+		return nil, fmt.Errorf("%w: plain-text result exceeds %d-byte limit", ErrResultTooLarge, limit)
+	}
 	if err != nil {
 		return nil, err
 	}

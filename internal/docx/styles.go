@@ -1,9 +1,13 @@
 package docx
 
 import (
+	"context"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/giraffesyo/downmark/internal/ooxml"
 )
 
 type styleInfo struct {
@@ -16,18 +20,21 @@ type styleMap struct {
 	byID map[string]*styleInfo
 }
 
-func parseStyles(data []byte) *styleMap {
+func parseStyles(ctx context.Context, data []byte) (*styleMap, error) {
 	sm := &styleMap{byID: map[string]*styleInfo{}}
 	if data == nil {
-		return sm
+		return sm, nil
 	}
-	root, err := decodeTree(data)
+	root, err := decodeTree(ctx, data)
 	if err != nil {
-		return sm
+		if ctx.Err() != nil || errors.Is(err, ooxml.ErrXMLComplexity) {
+			return nil, err
+		}
+		return sm, nil
 	}
 	styles := root.child("styles")
 	if styles == nil {
-		return sm
+		return sm, nil
 	}
 	for _, st := range styles.kids {
 		if st.name != "style" || st.attr("type") != "paragraph" {
@@ -51,7 +58,7 @@ func parseStyles(data []byte) *styleMap {
 		}
 		sm.byID[id] = info
 	}
-	return sm
+	return sm, nil
 }
 
 var headingName = regexp.MustCompile(`(?i)^heading\s*([1-9])$`)

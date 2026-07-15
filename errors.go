@@ -10,6 +10,14 @@ import (
 // input under any detected interpretation of its type.
 var ErrUnsupportedFormat = errors.New("downmark: unsupported format")
 
+// ErrInputTooLarge is returned when a converter's hard input budget is
+// exceeded, including while the engine buffers a non-seekable stream.
+var ErrInputTooLarge = errors.New("downmark: input exceeds size limit")
+
+// ErrResultTooLarge is returned when a conversion result exceeds the maximum
+// size carried by its context via WithResultLimit.
+var ErrResultTooLarge = errors.New("downmark: result exceeds size limit")
+
 // AttemptError records a single converter's failed conversion attempt.
 type AttemptError struct {
 	// Converter is the name of the converter that failed, e.g. "pdf".

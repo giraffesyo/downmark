@@ -5,10 +5,13 @@ package pptx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/giraffesyo/downmark"
+	"github.com/giraffesyo/downmark/internal/limitbuf"
+	"github.com/giraffesyo/downmark/internal/ooxml"
 	"github.com/giraffesyo/downmark/internal/pptx"
 	"github.com/giraffesyo/downmark/internal/readerat"
 )
@@ -23,6 +26,8 @@ type converter struct{}
 
 func (converter) Name() string { return "pptx" }
 
+func (converter) InputLimit() int64 { return ooxml.MaxArchiveBytes }
+
 func (converter) Accepts(info downmark.StreamInfo) bool {
 	return info.Matches(
 		[]string{".pptx"},
@@ -30,17 +35,24 @@ func (converter) Accepts(info downmark.StreamInfo) bool {
 	)
 }
 
-func (converter) Convert(_ context.Context, input io.ReadSeeker, _ downmark.StreamInfo) (res *downmark.Result, err error) {
+func (converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.StreamInfo) (res *downmark.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			res, err = nil, fmt.Errorf("parse failure: %v", r)
 		}
 	}()
-	ra, size, err := readerat.From(input)
+	ra, size, err := readerat.FromLimit(input, ooxml.MaxArchiveBytes)
+	if errors.Is(err, readerat.ErrTooLarge) {
+		return nil, fmt.Errorf("%w: pptx archive is %d bytes; limit is %d", downmark.ErrInputTooLarge, size, ooxml.MaxArchiveBytes)
+	}
 	if err != nil {
 		return nil, err
 	}
-	md, title, err := pptx.Convert(ra, size)
+	resultLimit, _ := downmark.ResultLimit(ctx)
+	md, title, err := pptx.Convert(ctx, ra, size, resultLimit)
+	if errors.Is(err, limitbuf.ErrTooLarge) {
+		return nil, fmt.Errorf("%w: pptx result exceeds %d-byte limit", downmark.ErrResultTooLarge, resultLimit)
+	}
 	if err != nil {
 		return nil, err
 	}

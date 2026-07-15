@@ -7,7 +7,7 @@ import (
 
 func conv(t *testing.T, in string, opts Options) (string, string) {
 	t.Helper()
-	md, title, err := ConvertString(in, opts)
+	md, title, err := ConvertString(t.Context(), in, opts)
 	if err != nil {
 		t.Fatalf("ConvertString: %v", err)
 	}
