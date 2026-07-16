@@ -41,7 +41,7 @@ type Priority int
 
 const (
 	// PrioritySpecific is for converters keyed to a specific file format
-	// (docx, xlsx, pptx, pdf, csv).
+	// (doc, docx, xlsx, pptx, pdf, csv).
 	PrioritySpecific Priority = 0
 	// PriorityArchive is for archive walkers, which must run only after
 	// converters for formats that use an archive as their container (such as

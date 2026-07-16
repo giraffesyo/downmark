@@ -17,6 +17,7 @@ native dependencies.
 | Format | Package | Notes |
 |---|---|---|
 | PDF | `convert/pdf` | Text extraction via [github.com/giraffesyo/pdf](https://github.com/giraffesyo/pdf): Form XObjects (Google Docs exports), Identity-H composite fonts, ToUnicode CMaps, segmented content streams, inline images; hard budgets against decompression bombs. No OCR: scanned PDFs return a clear error. |
+| DOC | `convert/doc` | Word 97–2003 binary documents: bounded Compound Binary parsing, CLX piece-table reconstruction, ANSI/UTF-16 text, and displayed field results. Main-document text only; legacy formatting is not preserved. |
 | DOCX | `convert/docx` | Headings, bold/italic/strikethrough, sub/superscript, nested lists, tables (incl. gridSpan/vMerge), hyperlinks, image placeholders, tracked changes. Equations degrade to plain text. |
 | XLSX | `convert/xlsx` | Every sheet as `## SheetName` + a Markdown table. |
 | PPTX | `convert/pptx` | Slides in order with `<!-- Slide number: N -->` markers, position-based reading order, tables, chart data tables, image alt text, speaker notes. |
@@ -123,6 +124,9 @@ reconstruction, and hardening against malformed and hostile files.
 
 - **No OCR.** Scanned/image-only PDFs and text-converted-to-outlines fail
   with "no extractable text" rather than silently emitting nothing.
+- DOC: Word 97–2003 main-document text is extracted, but formatting, tables,
+  images, headers/footers, footnotes, comments, and text boxes are not
+  reconstructed. Word 6/95 files are not supported.
 - PDF: complex multi-column layouts may interleave; fonts lacking both a
   ToUnicode map and a standard encoding are dropped rather than emitted as
   garbage; borderless table-layout reconstruction is not yet implemented.

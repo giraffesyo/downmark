@@ -5,6 +5,7 @@
 // separate packages so binaries link only the formats they use:
 //
 //   - github.com/giraffesyo/downmark/convert/pdf
+//   - github.com/giraffesyo/downmark/convert/doc
 //   - github.com/giraffesyo/downmark/convert/docx
 //   - github.com/giraffesyo/downmark/convert/xlsx
 //   - github.com/giraffesyo/downmark/convert/pptx

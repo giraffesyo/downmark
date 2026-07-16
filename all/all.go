@@ -11,6 +11,7 @@ import (
 
 	"github.com/giraffesyo/downmark"
 	"github.com/giraffesyo/downmark/convert/csv"
+	"github.com/giraffesyo/downmark/convert/doc"
 	"github.com/giraffesyo/downmark/convert/docx"
 	"github.com/giraffesyo/downmark/convert/html"
 	"github.com/giraffesyo/downmark/convert/pdf"
@@ -34,6 +35,7 @@ func New(opts Options) *downmark.Engine {
 	xlsx.Register(e)
 	pdf.Register(e)
 	pptx.Register(e)
+	doc.Register(e)
 	docx.Register(e, docx.Options{KeepDataURIs: opts.KeepDataURIs})
 	zipfile.Register(e)
 	return e
