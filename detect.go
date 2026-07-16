@@ -15,6 +15,7 @@ const sniffLen = 8192
 // extMIME maps extensions to MIME types for formats we care about. The
 // platform mime package is unreliable for office types, so these win.
 var extMIME = map[string]string{
+	".doc":      "application/msword",
 	".docx":     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	".xlsx":     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	".pptx":     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -36,7 +37,7 @@ var mimeExt = func() map[string]string {
 	m := make(map[string]string, len(extMIME))
 	// Iterate a fixed order so ties resolve deterministically.
 	for _, ext := range []string{
-		".docx", ".xlsx", ".pptx", ".pdf", ".csv", ".html", ".txt",
+		".doc", ".docx", ".xlsx", ".pptx", ".pdf", ".csv", ".html", ".txt",
 		".md", ".json", ".xml", ".zip",
 	} {
 		if _, ok := m[extMIME[ext]]; !ok {
