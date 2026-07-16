@@ -11,22 +11,24 @@ import (
 	"unicode/utf16"
 
 	"github.com/richardlehane/mscfb"
-	"golang.org/x/text/encoding/charmap"
 
 	"github.com/giraffesyo/downmark/internal/limitbuf"
 )
 
 const (
-	maxFIBBytes = 4096
-	clxPair     = 33 // zero-based FibRgFcLcb97 fcClx/lcbClx pair
-	pcdSize     = 8
+	maxFIBBytes     = 4096
+	clxPair         = 33 // zero-based FibRgFcLcb97 fcClx/lcbClx pair
+	pcdSize         = 8
+	maxPieces       = 1 << 18
+	maxFieldNesting = 1024
 )
-
-var errNoText = errors.New("legacy DOC contains no extractable text")
 
 // Convert extracts the main-document text from a Word binary file. ra is
 // bounded to size before it is handed to the compound-file reader.
 func Convert(ctx context.Context, ra io.ReaderAt, size int64, outputLimit int) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if size < 512 {
 		return "", errors.New("legacy DOC: compound file is too small")
 	}
@@ -75,9 +77,6 @@ func Convert(ctx context.Context, ra io.ReaderAt, size int64, outputLimit int) (
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(text) == "" {
-		return "", errNoText
-	}
 	return text, nil
 }
 
@@ -125,11 +124,11 @@ func parseFIB(data []byte) (fib, error) {
 		return fib{}, fmt.Errorf("FibRgLw has %d values; need at least 4", cslw)
 	}
 	f.cbMac = binary.LittleEndian.Uint32(data[lwStart : lwStart+4])
-	ccpText := int32(binary.LittleEndian.Uint32(data[lwStart+12 : lwStart+16]))
-	if ccpText < 0 {
-		return fib{}, fmt.Errorf("negative main-document character count %d", ccpText)
+	rawCCPText := binary.LittleEndian.Uint32(data[lwStart+12 : lwStart+16])
+	if rawCCPText > uint32(1<<31-1) {
+		return fib{}, fmt.Errorf("negative main-document character count %d", int64(rawCCPText)-(1<<32))
 	}
-	f.ccpText = int64(ccpText)
+	f.ccpText = int64(rawCCPText)
 	off = next
 
 	pairs, fcLcbStart, _, err := countedSectionStart(data, off, 8)
@@ -199,26 +198,36 @@ func extractPieces(ctx context.Context, word *mscfb.File, meaningfulBytes int64,
 		return "", fmt.Errorf("legacy DOC: invalid PlcPcd size %d", len(plc))
 	}
 	pieceCount := (len(plc) - 4) / (4 + pcdSize)
+	if pieceCount > maxPieces {
+		return "", fmt.Errorf("legacy DOC: PlcPcd contains %d pieces; limit is %d", pieceCount, maxPieces)
+	}
 	cpBytes := (pieceCount + 1) * 4
 	if cpBytes > len(plc) {
 		return "", errors.New("legacy DOC: truncated PlcPcd character positions")
 	}
 	if ccpText == 0 {
-		return "", errNoText
+		return "", nil
 	}
 
 	firstCP, err := readCP(plc, 0)
-	if err != nil || firstCP != 0 {
+	if err != nil {
+		return "", fmt.Errorf("legacy DOC: reading first PlcPcd character position: %w", err)
+	}
+	if firstCP != 0 {
 		return "", fmt.Errorf("legacy DOC: PlcPcd begins at character position %d; want 0", firstCP)
 	}
 	lastCP, err := readCP(plc, pieceCount)
-	if err != nil || lastCP < ccpText {
+	if err != nil {
+		return "", fmt.Errorf("legacy DOC: reading final PlcPcd character position: %w", err)
+	}
+	if lastCP < ccpText {
 		return "", fmt.Errorf("legacy DOC: PlcPcd ends at character position %d before main document ends at %d", lastCP, ccpText)
 	}
 
 	w := newTextWriter(outputLimit)
 	previousCP := int64(-1)
-	for i := 0; i < pieceCount; i++ {
+	var pieceBuf []byte
+	for i := range pieceCount {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
@@ -252,19 +261,30 @@ func extractPieces(ctx context.Context, word *mscfb.File, meaningfulBytes int64,
 			fc /= 2
 			bytesPerChar = 1
 		}
-		if charCount > (meaningfulBytes-fc)/bytesPerChar || fc < 0 || fc > meaningfulBytes {
+		if fc > meaningfulBytes || charCount > (meaningfulBytes-fc)/bytesPerChar {
 			return "", fmt.Errorf("legacy DOC: piece %d text range exceeds WordDocument stream", i)
 		}
-		piece, err := readStreamRange(word, fc, charCount*bytesPerChar)
-		if err != nil {
+		pieceBytes := charCount * bytesPerChar
+		if pieceBytes > int64(int(^uint(0)>>1)) {
+			return "", fmt.Errorf("legacy DOC: piece %d is too large", i)
+		}
+		if int64(cap(pieceBuf)) < pieceBytes {
+			pieceBuf = make([]byte, int(pieceBytes))
+		} else {
+			pieceBuf = pieceBuf[:int(pieceBytes)]
+		}
+		if err := readStreamInto(word, fc, pieceBuf); err != nil {
 			return "", fmt.Errorf("legacy DOC: reading piece %d: %w", i, err)
 		}
-		if err := w.writePiece(ctx, piece, compressed); err != nil {
+		if err := w.writePiece(ctx, pieceBuf, compressed); err != nil {
 			if errors.Is(err, limitbuf.ErrTooLarge) {
 				return "", err
 			}
 			return "", fmt.Errorf("legacy DOC: decoding piece %d: %w", i, err)
 		}
+	}
+	if err := w.finish(); err != nil {
+		return "", err
 	}
 	return w.String(), nil
 }
@@ -274,17 +294,18 @@ func readCP(plc []byte, index int) (int64, error) {
 	if index < 0 || off+4 > len(plc) {
 		return 0, io.ErrUnexpectedEOF
 	}
-	cp := int32(binary.LittleEndian.Uint32(plc[off : off+4]))
-	if cp < 0 {
-		return 0, fmt.Errorf("negative character position %d", cp)
+	rawCP := binary.LittleEndian.Uint32(plc[off : off+4])
+	if rawCP > uint32(1<<31-1) {
+		return 0, fmt.Errorf("negative character position %d", int64(rawCP)-(1<<32))
 	}
-	return int64(cp), nil
+	return int64(rawCP), nil
 }
 
 type textWriter struct {
-	out          *limitbuf.Buffer
-	fields       []bool // false while reading instructions, true in displayed result
-	hiddenFields int
+	out                  *limitbuf.Buffer
+	fields               []bool // false while reading instructions, true in displayed result
+	hiddenFields         int
+	pendingHighSurrogate rune
 }
 
 func newTextWriter(limit int) *textWriter {
@@ -295,13 +316,16 @@ func (w *textWriter) String() string { return w.out.String() }
 
 func (w *textWriter) writePiece(ctx context.Context, data []byte, compressed bool) error {
 	if compressed {
+		if err := w.flushPendingSurrogate(); err != nil {
+			return err
+		}
 		for i, b := range data {
 			if i&0xFFF == 0 {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
 			}
-			if err := w.writeRune(charmap.Windows1252.DecodeByte(b)); err != nil {
+			if err := w.writeRune(decodeCompressedByte(b)); err != nil {
 				return err
 			}
 		}
@@ -317,19 +341,25 @@ func (w *textWriter) writePiece(ctx context.Context, data []byte, compressed boo
 			}
 		}
 		r := rune(binary.LittleEndian.Uint16(data[i : i+2]))
-		if utf16.IsSurrogate(r) {
-			if i+4 > len(data) {
-				r = unicodeReplacement
-			} else {
-				next := rune(binary.LittleEndian.Uint16(data[i+2 : i+4]))
-				decoded := utf16.DecodeRune(r, next)
-				if decoded == unicodeReplacement {
-					r = unicodeReplacement
-				} else {
-					r = decoded
-					i += 2
+		if w.pendingHighSurrogate != 0 {
+			decoded := utf16.DecodeRune(w.pendingHighSurrogate, r)
+			w.pendingHighSurrogate = 0
+			if decoded != unicodeReplacement {
+				if err := w.writeRune(decoded); err != nil {
+					return err
 				}
+				continue
 			}
+			if err := w.writeRune(unicodeReplacement); err != nil {
+				return err
+			}
+		}
+		if r >= 0xD800 && r <= 0xDBFF {
+			w.pendingHighSurrogate = r
+			continue
+		}
+		if r >= 0xDC00 && r <= 0xDFFF {
+			r = unicodeReplacement
 		}
 		if err := w.writeRune(r); err != nil {
 			return err
@@ -340,9 +370,58 @@ func (w *textWriter) writePiece(ctx context.Context, data []byte, compressed boo
 
 const unicodeReplacement = '\uFFFD'
 
+var compressedCodePoints = [...]rune{
+	2:  '\u201A',
+	3:  '\u0192',
+	4:  '\u201E',
+	5:  '\u2026',
+	6:  '\u2020',
+	7:  '\u2021',
+	8:  '\u02C6',
+	9:  '\u2030',
+	10: '\u0160',
+	11: '\u2039',
+	12: '\u0152',
+	17: '\u2018',
+	18: '\u2019',
+	19: '\u201C',
+	20: '\u201D',
+	21: '\u2022',
+	22: '\u2013',
+	23: '\u2014',
+	24: '\u02DC',
+	25: '\u2122',
+	26: '\u0161',
+	27: '\u203A',
+	28: '\u0153',
+	31: '\u0178',
+}
+
+func decodeCompressedByte(b byte) rune {
+	if b >= 0x80 && b <= 0x9F {
+		if r := compressedCodePoints[b-0x80]; r != 0 {
+			return r
+		}
+	}
+	return rune(b)
+}
+
+func (w *textWriter) finish() error { return w.flushPendingSurrogate() }
+
+func (w *textWriter) flushPendingSurrogate() error {
+	if w.pendingHighSurrogate == 0 {
+		return nil
+	}
+	w.pendingHighSurrogate = 0
+	return w.writeRune(unicodeReplacement)
+}
+
 func (w *textWriter) writeRune(r rune) error {
 	switch r {
 	case 0x13: // field begin; instructions follow
+		if len(w.fields) >= maxFieldNesting {
+			return fmt.Errorf("field nesting exceeds limit of %d", maxFieldNesting)
+		}
 		w.fields = append(w.fields, false)
 		w.hiddenFields++
 		return nil
@@ -404,18 +483,28 @@ func readStreamRange(stream *mscfb.File, off, size int64) ([]byte, error) {
 		return nil, errors.New("stream range is too large")
 	}
 	buf := make([]byte, int(size))
+	if err := readStreamInto(stream, off, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+func readStreamInto(stream *mscfb.File, off int64, buf []byte) error {
+	if off < 0 || off > stream.Size || int64(len(buf)) > stream.Size-off {
+		return io.ErrUnexpectedEOF
+	}
 	if len(buf) == 0 {
-		return buf, nil
+		return nil
 	}
 	n, err := stream.ReadAt(buf, off)
 	if n != len(buf) {
 		if err == nil {
 			err = io.ErrUnexpectedEOF
 		}
-		return nil, err
+		return err
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
+		return err
 	}
-	return buf, nil
+	return nil
 }

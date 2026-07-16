@@ -79,6 +79,21 @@ func TestDOCResultLimit(t *testing.T) {
 	}
 }
 
+var benchmarkMarkdown string
+
+func BenchmarkConvertSyntheticDOC(b *testing.B) {
+	data := buildSyntheticDOC(false)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(data)))
+	for b.Loop() {
+		res, err := all.Convert(b.Context(), bytes.NewReader(data), downmark.StreamInfo{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkMarkdown = res.Markdown
+	}
+}
+
 const (
 	sectorSize = 512
 	endOfChain = uint32(0xFFFFFFFE)
@@ -91,7 +106,8 @@ const (
 // two streams are deliberately 4096 bytes so the fixture does not need a CFB
 // mini-stream.
 func buildSyntheticDOC(encrypted bool) []byte {
-	compressed := []byte("Heading\rHello \x93legacy\x94 Word\r\x13HYPERLINK \"https://example.com\"\x14Example link\x15\r")
+	const compressedText = "Heading\rHello \x93legacy\x94 Word\r\x13HYPERLINK \"https://example.com\"\x14Example link\x15\r"
+	compressed := []byte(compressedText)
 	unicodeRunes := utf16.Encode([]rune("Unicode 🚀\r"))
 	unicodeBytes := make([]byte, len(unicodeRunes)*2)
 	for i, r := range unicodeRunes {
@@ -109,9 +125,17 @@ func buildSyntheticDOC(encrypted bool) []byte {
 	copy(word[compressedOff:], compressed)
 	copy(word[unicodeOff:], unicodeBytes)
 
-	cp1 := uint32(len(compressed))
-	cp2 := cp1 + uint32(len(unicodeRunes))
-	plc := make([]byte, 4*3+8*2)
+	const (
+		compressedCPs = len(compressedText)
+		plcSize       = 4*3 + 8*2
+		clxSize       = 1 + 2 + 2 + 1 + 4 + plcSize
+	)
+	cp1 := uint32(compressedCPs)
+	cp2 := cp1
+	for range unicodeRunes {
+		cp2++
+	}
+	plc := make([]byte, plcSize)
 	binary.LittleEndian.PutUint32(plc[0:4], 0)
 	binary.LittleEndian.PutUint32(plc[4:8], cp1)
 	binary.LittleEndian.PutUint32(plc[8:12], cp2)
@@ -120,7 +144,7 @@ func buildSyntheticDOC(encrypted bool) []byte {
 	binary.LittleEndian.PutUint32(plc[22:26], unicodeOff)
 
 	clx := []byte{0x01, 0x02, 0x00, 0xAA, 0xBB, 0x02}
-	clx = binary.LittleEndian.AppendUint32(clx, uint32(len(plc)))
+	clx = binary.LittleEndian.AppendUint32(clx, plcSize)
 	clx = append(clx, plc...)
 	table := make([]byte, 8*sectorSize)
 	copy(table, clx)
@@ -144,7 +168,7 @@ func buildSyntheticDOC(encrypted bool) []byte {
 	binary.LittleEndian.PutUint16(word[152:154], 93)
 	const fcClxOffset = 154 + 33*8
 	binary.LittleEndian.PutUint32(word[fcClxOffset:fcClxOffset+4], 0)
-	binary.LittleEndian.PutUint32(word[fcClxOffset+4:fcClxOffset+8], uint32(len(clx)))
+	binary.LittleEndian.PutUint32(word[fcClxOffset+4:fcClxOffset+8], clxSize)
 
 	data := make([]byte, sectorSize*(1+18))
 	writeCFBHeader(data[:sectorSize], fatSectorNumber)
@@ -160,7 +184,7 @@ func buildSyntheticDOC(encrypted bool) []byte {
 	copy(data[(tableStartSector+1)*sectorSize:], table)
 
 	fat := data[(fatSectorNumber+1)*sectorSize:]
-	for i := 0; i < sectorSize/4; i++ {
+	for i := range sectorSize / 4 {
 		binary.LittleEndian.PutUint32(fat[i*4:], freeSector)
 	}
 	binary.LittleEndian.PutUint32(fat[0*4:], endOfChain)
@@ -196,10 +220,15 @@ func writeCFBHeader(header []byte, fatSectorNumber uint32) {
 
 func writeDirectoryEntry(entry []byte, name string, objectType byte, left, right, child, start uint32, size uint64) {
 	encodedName := utf16.Encode([]rune(name + "\x00"))
+	if len(encodedName) > 32 {
+		panic("synthetic CFB directory name is too long")
+	}
+	var nameBytes uint16
 	for i, r := range encodedName {
 		binary.LittleEndian.PutUint16(entry[i*2:], r)
+		nameBytes += 2
 	}
-	binary.LittleEndian.PutUint16(entry[64:66], uint16(len(encodedName)*2))
+	binary.LittleEndian.PutUint16(entry[64:66], nameBytes)
 	entry[66] = objectType
 	entry[67] = 1
 	binary.LittleEndian.PutUint32(entry[68:72], left)
