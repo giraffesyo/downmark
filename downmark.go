@@ -36,6 +36,14 @@ type InputLimitConverter interface {
 	InputLimit() int64
 }
 
+// fallbackConverter marks a catch-all converter that accepts input no
+// dedicated converter claims (the builtin plain-text converter). CanConvert
+// excludes these so it reports only format-specific support. The unexported
+// method keeps the set of fallbacks confined to this package.
+type fallbackConverter interface {
+	isFallback()
+}
+
 // Priority orders converters: lower values are tried first.
 type Priority int
 
@@ -214,7 +222,7 @@ func (e *Engine) ConvertFile(ctx context.Context, path string) (*Result, error) 
 
 // CanConvert reports whether a registered format-specific converter would
 // accept input described by hints, judged from the hints alone (no stream is
-// read). The builtin plain-text fallback is excluded, so this means "a
+// read). Catch-all fallback converters are excluded, so this means "a
 // dedicated converter claims this format" rather than "Convert would produce
 // something"; callers routing files can use it to send only real documents
 // through Convert and handle plain text themselves. An empty Extension is
@@ -228,9 +236,11 @@ func (e *Engine) CanConvert(hints StreamInfo) bool {
 	if err != nil {
 		return false
 	}
+	// Registration order is irrelevant for a boolean "any accepts" check, so
+	// the sorted view is unnecessary.
 	for _, guess := range guesses {
-		for _, reg := range e.sortedRegistrations() {
-			if _, isPlainText := reg.conv.(*plainTextConverter); isPlainText {
+		for _, reg := range e.regs {
+			if _, isFallback := reg.conv.(fallbackConverter); isFallback {
 				continue
 			}
 			if reg.conv.Accepts(guess) {

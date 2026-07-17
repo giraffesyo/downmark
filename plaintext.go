@@ -16,6 +16,8 @@ type plainTextConverter struct{}
 
 func (*plainTextConverter) Name() string { return "plaintext" }
 
+func (*plainTextConverter) isFallback() {}
+
 func (*plainTextConverter) Accepts(info StreamInfo) bool {
 	// A detected charset means the detection layer believes this is text.
 	if info.Charset != "" {
