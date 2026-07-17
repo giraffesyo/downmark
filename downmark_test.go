@@ -302,3 +302,39 @@ func TestBuildGuessesHintsBeatSniffing(t *testing.T) {
 		t.Errorf("expected detected charset on text-like guess, got none")
 	}
 }
+
+type stubConverter struct {
+	exts  []string
+	mimes []string
+}
+
+func (c stubConverter) Accepts(info StreamInfo) bool { return info.Matches(c.exts, c.mimes) }
+
+func (stubConverter) Convert(context.Context, io.ReadSeeker, StreamInfo) (*Result, error) {
+	return &Result{Markdown: "stub"}, nil
+}
+
+func TestCanConvert(t *testing.T) {
+	e := New() // registers only the builtin plain-text fallback
+	e.Register(stubConverter{exts: []string{".foo"}, mimes: []string{"application/x-foo"}}, PrioritySpecific)
+
+	cases := []struct {
+		name  string
+		hints StreamInfo
+		want  bool
+	}{
+		{"format by extension", StreamInfo{Filename: "a.foo"}, true},
+		{"format by mime", StreamInfo{MIMEType: "application/x-foo"}, true},
+		{"plain text is not a dedicated format", StreamInfo{Filename: "a.txt"}, false},
+		{"text mime is not a dedicated format", StreamInfo{MIMEType: "text/plain"}, false},
+		{"unknown binary", StreamInfo{Filename: "a.bin", MIMEType: "application/octet-stream"}, false},
+		{"nothing known", StreamInfo{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := e.CanConvert(tc.hints); got != tc.want {
+				t.Errorf("CanConvert(%+v) = %v, want %v", tc.hints, got, tc.want)
+			}
+		})
+	}
+}

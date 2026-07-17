@@ -212,6 +212,35 @@ func (e *Engine) ConvertFile(ctx context.Context, path string) (*Result, error) 
 	return e.convert(ctx, f, info)
 }
 
+// CanConvert reports whether a registered format-specific converter would
+// accept input described by hints, judged from the hints alone (no stream is
+// read). The builtin plain-text fallback is excluded, so this means "a
+// dedicated converter claims this format" rather than "Convert would produce
+// something"; callers routing files can use it to send only real documents
+// through Convert and handle plain text themselves. An empty Extension is
+// derived from Filename. Because no content is sniffed, a mislabeled file that
+// Convert would still classify by its bytes can read as false here.
+func (e *Engine) CanConvert(hints StreamInfo) bool {
+	if hints.Extension == "" && hints.Filename != "" {
+		hints.Extension = strings.ToLower(filepath.Ext(hints.Filename))
+	}
+	guesses, err := buildGuesses(bytes.NewReader(nil), hints)
+	if err != nil {
+		return false
+	}
+	for _, guess := range guesses {
+		for _, reg := range e.sortedRegistrations() {
+			if _, isPlainText := reg.conv.(*plainTextConverter); isPlainText {
+				continue
+			}
+			if reg.conv.Accepts(guess) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (e *Engine) convert(ctx context.Context, rs io.ReadSeeker, base StreamInfo) (*Result, error) {
 	guesses, err := buildGuesses(rs, base)
 	if err != nil {

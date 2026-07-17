@@ -53,3 +53,9 @@ func Convert(ctx context.Context, r io.Reader, hints downmark.StreamInfo) (*down
 func ConvertFile(ctx context.Context, path string) (*downmark.Result, error) {
 	return defaultEngine().ConvertFile(ctx, path)
 }
+
+// CanConvert reports whether the shared default engine has a format-specific
+// converter for input described by hints. See downmark.Engine.CanConvert.
+func CanConvert(hints downmark.StreamInfo) bool {
+	return defaultEngine().CanConvert(hints)
+}
