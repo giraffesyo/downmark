@@ -66,9 +66,9 @@ func convertDoc(ctx context.Context, doc *html.Node, opts Options) (md string, t
 	return string(out), title, nil
 }
 
-// applyPolicy mutates the DOM in place — dropping script/style/noscript and
-// comments, unwrapping unsafe links, truncating data: image URIs — and
-// returns the document title.
+// applyPolicy mutates the DOM in place — dropping non-content nodes,
+// unwrapping unsafe links, truncating data: image URIs — and returns the
+// document title.
 func applyPolicy(ctx context.Context, doc *html.Node, opts Options) (title string, err error) {
 	var walk func(n *html.Node) error
 	walk = func(n *html.Node) error {
@@ -81,9 +81,12 @@ func applyPolicy(ctx context.Context, doc *html.Node, opts Options) (title strin
 			case html.CommentNode:
 				n.RemoveChild(c)
 			case html.ElementNode:
-				switch c.DataAtom {
-				case atom.Script, atom.Style, atom.Noscript:
+				if hiddenElement(c) {
 					n.RemoveChild(c)
+					c = next
+					continue
+				}
+				switch c.DataAtom {
 				case atom.Title:
 					if title == "" {
 						title = collapseSpace(textContent(c))
@@ -124,6 +127,19 @@ func applyPolicy(ctx context.Context, doc *html.Node, opts Options) (title strin
 		return "", err
 	}
 	return title, nil
+}
+
+func hiddenElement(n *html.Node) bool {
+	switch n.DataAtom {
+	case atom.Script, atom.Style, atom.Template, atom.Noscript, atom.Svg:
+		return true
+	}
+	for _, a := range n.Attr {
+		if a.Key == "hidden" || a.Key == "aria-hidden" && strings.EqualFold(strings.TrimSpace(a.Val), "true") {
+			return true
+		}
+	}
+	return false
 }
 
 // safeLink allows relative URLs and the http, https, file, and mailto

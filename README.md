@@ -21,7 +21,7 @@ native dependencies.
 | DOCX | `convert/docx` | Headings, bold/italic/strikethrough, sub/superscript, nested lists, tables (incl. gridSpan/vMerge), hyperlinks, image placeholders, tracked changes. Equations degrade to plain text. |
 | XLSX | `convert/xlsx` | Every sheet as `## SheetName` + a Markdown table. |
 | PPTX | `convert/pptx` | Slides in order with `<!-- Slide number: N -->` markers, position-based reading order, tables, chart data tables, image alt text, speaker notes. |
-| HTML | `convert/html` | DOM sanitization (scripts/styles dropped, `javascript:` links unwrapped, data URIs truncated) + GFM tables. |
+| HTML | `convert/html` | DOM sanitization (hidden/inert content dropped, `javascript:` links unwrapped, data URIs truncated) + GFM tables. |
 | CSV | `convert/csv` | Charset-aware (incl. Shift-JIS/cp932), delimiter sniffing (`, ; \t \|`). |
 | ZIP | `convert/zipfile` | Supported members are converted through the engine and emitted under per-file headings; hard limits cap compressed archives at 64 MiB, total member data at 128 MiB (10 MiB/member), conversion at 64 members, scanning at 1,024 entries, and output at 32 MiB. |
 | Plain text | built into core | Charset-detected passthrough (UTF-8/16, legacy encodings). |

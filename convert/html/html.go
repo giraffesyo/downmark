@@ -1,5 +1,5 @@
 // Package html converts HTML documents to Markdown for the downmark
-// engine, sanitizing the DOM first (scripts and styles dropped, unsafe
+// engine, sanitizing the DOM first (hidden and inert content dropped, unsafe
 // link schemes unwrapped, data URIs truncated unless kept).
 package html
 
