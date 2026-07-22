@@ -102,6 +102,27 @@ func TestChildOfRemovedNodeNotConverted(t *testing.T) {
 	}
 }
 
+func TestHiddenAndInertSubtreesStripped(t *testing.T) {
+	md, _ := conv(t, `<body>
+<p>visible</p>
+<p aria-hidden="false">also visible</p>
+<div hidden><p>hidden attribute</p></div>
+<div aria-hidden=" TRUE "><p>aria hidden</p></div>
+<template><p>template content</p></template>
+<svg><text>svg content</text></svg>
+</body>`, Options{})
+	for _, want := range []string{"visible", "also visible"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("visible content %q lost: %q", want, md)
+		}
+	}
+	for _, unwanted := range []string{"hidden attribute", "aria hidden", "template content", "svg content"} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("hidden content %q leaked into %q", unwanted, md)
+		}
+	}
+}
+
 func TestStrikethrough(t *testing.T) {
 	md, _ := conv(t, `<body><p><del>gone</del></p></body>`, Options{})
 	if !strings.Contains(md, "~~gone~~") {
