@@ -1,0 +1,70 @@
+{
+  "name": "@giraffesyo/downmark",
+  "version": "0.0.0",
+  "description": "Convert PDF, DOC, DOCX, XLSX, PPTX, HTML, CSV, ZIP, and plaintext documents to Markdown. Pure WebAssembly; runs in Node and the browser with zero dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/giraffesyo/downmark.git",
+    "directory": "js"
+  },
+  "homepage": "https://github.com/giraffesyo/downmark#readme",
+  "bugs": {
+    "url": "https://github.com/giraffesyo/downmark/issues"
+  },
+  "keywords": [
+    "markdown",
+    "convert",
+    "pdf",
+    "docx",
+    "xlsx",
+    "pptx",
+    "doc",
+    "html",
+    "csv",
+    "wasm",
+    "webassembly"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "vendor",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.browser.js"
+      },
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./downmark.wasm": "./dist/downmark.wasm",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build:ts": "npm run build:esm && npm run build:cjs && npm run build:browser && npm run build:types",
+    "build:esm": "esbuild src/index.ts --bundle --format=esm --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.ts --outfile=dist/index.js",
+    "build:cjs": "esbuild src/index.ts --bundle --format=cjs --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.cjs.ts --outfile=dist/index.cjs",
+    "build:browser": "esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --alias:#wasm-loader=./src/loader.browser.ts --outfile=dist/index.browser.js",
+    "build:types": "tsc -p tsconfig.json && node scripts/emit-cts.mjs",
+    "test": "node --test \"test/*.test.*\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}
