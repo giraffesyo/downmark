@@ -39,6 +39,8 @@ jobs:
         with:
           node-version: lts/*
           registry-url: https://registry.npmjs.org
+      - name: install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
       - name: build wasm + npm package and test
         run: make js-test
       - name: set package version from tag
