@@ -74,6 +74,19 @@ res, err := all.ConvertFile(ctx, "report.docx")
 Indicative binary sizes (`-trimpath -ldflags "-s -w"`, darwin/arm64): a
 PDF-only consumer ≈ 4.9 MB, CSV-only ≈ 4.5 MB, everything ≈ 7.5 MB.
 
+## Node.js and browsers
+
+downmark also ships as an npm package,
+[`@giraffesyo/downmark`](https://www.npmjs.com/package/@giraffesyo/downmark) —
+the full library compiled to WebAssembly with a TypeScript API for Node ≥ 18
+and browsers. See [js/README.md](js/README.md).
+
+```js
+import { convert } from "@giraffesyo/downmark";
+
+const { markdown, title } = await convert(data, { filename: "report.docx" });
+```
+
 ## MarkItDown comparison
 
 Downmark and [MarkItDown](https://github.com/microsoft/markitdown) solve the

@@ -28,6 +28,25 @@ jobs:
         if: runner.os != 'Windows'
         run: go mod tidy -diff
 
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - name: build wasm + npm package and test
+        run: make js-test
+      - name: report wasm size
+        run: |
+          ls -lh js/dist/downmark.wasm
+          echo "gzipped: $(gzip -c js/dist/downmark.wasm | wc -c) bytes"
+      - name: wasm_exec.js drift check
+        run: git diff --exit-code js/vendor
+
   lint:
     runs-on: ubuntu-latest
     steps:
