@@ -44,7 +44,7 @@ export interface ConvertResult {
 /**
  * Load and start the wasm module. Optional: convert() and canConvert() call
  * it implicitly. Call it explicitly to override where downmark.wasm comes
- * from (e.g. a bundler asset URL) — it must then run before the first
+ * from (e.g. a bundler asset URL). It must then run before the first
  * convert/canConvert.
  */
 export async function init(source?: WasmSourceInput): Promise<void> {
