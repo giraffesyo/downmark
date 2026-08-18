@@ -1,6 +1,12 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOROOT_DIR := $(shell go env GOROOT)
 
+# Features the Go toolchain emits for js/wasm. These must be named
+# explicitly: which ones a binaryen build enables by default varies by
+# version, and older releases (e.g. the one in Ubuntu's apt) reject
+# i64.extend32_s without --enable-sign-ext.
+WASM_OPT_FEATURES := --enable-sign-ext --enable-bulk-memory --enable-nontrapping-float-to-int
+
 .PHONY: wasm-exec wasm js js-test
 
 # Copy the Go runtime's JS support shim into the npm package's vendor dir.
@@ -15,7 +21,7 @@ wasm: wasm-exec
 	GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o js/dist/downmark.wasm ./wasm
 	@if command -v wasm-opt >/dev/null 2>&1; then \
 		echo "wasm-opt -Oz js/dist/downmark.wasm"; \
-		wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int -o js/dist/downmark.wasm.opt js/dist/downmark.wasm && \
+		wasm-opt -Oz $(WASM_OPT_FEATURES) -o js/dist/downmark.wasm.opt js/dist/downmark.wasm && \
 		mv js/dist/downmark.wasm.opt js/dist/downmark.wasm; \
 	fi
 	@ls -lh js/dist/downmark.wasm
