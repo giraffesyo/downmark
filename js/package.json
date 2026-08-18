@@ -36,12 +36,21 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "browser": "./dist/index.browser.js",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "browser": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.browser.js"
+      },
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
-    "./downmark.wasm": "./dist/downmark.wasm"
+    "./downmark.wasm": "./dist/downmark.wasm",
+    "./package.json": "./package.json"
   },
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
@@ -50,7 +59,7 @@
     "build:esm": "esbuild src/index.ts --bundle --format=esm --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.ts --outfile=dist/index.js",
     "build:cjs": "esbuild src/index.ts --bundle --format=cjs --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.cjs.ts --outfile=dist/index.cjs",
     "build:browser": "esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --alias:#wasm-loader=./src/loader.browser.ts --outfile=dist/index.browser.js",
-    "build:types": "tsc -p tsconfig.json",
+    "build:types": "tsc -p tsconfig.json && node scripts/emit-cts.mjs",
     "test": "node --test \"test/*.test.*\""
   },
   "devDependencies": {

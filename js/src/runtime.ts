@@ -2,8 +2,8 @@
 // imported for its side effect: it defines globalThis.Go.
 import "../vendor/wasm_exec.js";
 import { defaultWasmSource, resolveWasmSource } from "#wasm-loader";
-import type { WasmSource, WasmSourceInput } from "./wasm-source";
-import { DownmarkError } from "./errors";
+import type { WasmSource, WasmSourceInput } from "./wasm-source.js";
+import { DownmarkError } from "./errors.js";
 
 /** Shape of the global the Go side registers as __downmark. */
 export interface DownmarkWasmApi {

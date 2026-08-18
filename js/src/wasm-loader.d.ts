@@ -2,7 +2,7 @@
 // concrete implementation is chosen at bundle time via esbuild --alias:
 // loader.node.ts (ESM), loader.node.cjs.ts (CJS), or loader.browser.ts.
 declare module "#wasm-loader" {
-  import type { WasmSource } from "./wasm-source";
+  import type { WasmSource } from "./wasm-source.js";
   /** Load the downmark.wasm that ships next to the built module. */
   export function defaultWasmSource(): Promise<WasmSource>;
   /** Resolve a caller-supplied path or URL to a wasm source. */

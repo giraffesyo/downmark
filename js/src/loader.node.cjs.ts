@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import type { WasmSource } from "./wasm-source";
+import type { WasmSource } from "./wasm-source.js";
 
 declare const __dirname: string;
 

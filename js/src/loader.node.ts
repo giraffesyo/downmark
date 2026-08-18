@@ -1,7 +1,7 @@
 // Node ESM loader: read downmark.wasm from disk next to the built module.
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { WasmSource } from "./wasm-source";
+import type { WasmSource } from "./wasm-source.js";
 
 export async function defaultWasmSource(): Promise<WasmSource> {
   return readFile(fileURLToPath(new URL("./downmark.wasm", import.meta.url)));

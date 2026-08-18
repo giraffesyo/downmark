@@ -1,14 +1,14 @@
-import { initRuntime } from "./runtime";
-import { DownmarkError, rehydrateError } from "./errors";
-import type { WasmSourceInput } from "./wasm-source";
+import { initRuntime } from "./runtime.js";
+import { DownmarkError, rehydrateError } from "./errors.js";
+import type { WasmSourceInput } from "./wasm-source.js";
 
 export {
   DownmarkError,
   ConversionFailedError,
   type ConversionAttempt,
   type DownmarkErrorCode,
-} from "./errors";
-export type { WasmSourceInput } from "./wasm-source";
+} from "./errors.js";
+export type { WasmSourceInput } from "./wasm-source.js";
 
 /** Hints about the input; every field is optional but the more the better. */
 export interface ConvertHints {
