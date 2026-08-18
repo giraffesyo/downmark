@@ -1,6 +1,6 @@
 {
   "name": "@giraffesyo/downmark",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Convert PDF, DOC, DOCX, XLSX, PPTX, HTML, CSV, ZIP, and plaintext documents to Markdown. Pure WebAssembly; runs in Node and the browser with zero dependencies.",
   "license": "MIT",
   "type": "module",

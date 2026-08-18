@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/giraffesyo/downmark/compare/v0.5.0...v0.6.0) (2026-08-18)
+
+
+### Features
+
+* remove the no-op WithHTTPClient option ([#24](https://github.com/giraffesyo/downmark/issues/24)) ([85701c7](https://github.com/giraffesyo/downmark/commit/85701c7a78b56ecc4e3ce07686dbc2ad75a0a1db))
+
 ## [0.5.0](https://github.com/giraffesyo/downmark/compare/v0.4.1...v0.5.0) (2026-08-18)
 
 
