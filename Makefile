@@ -7,7 +7,7 @@ GOROOT_DIR := $(shell go env GOROOT)
 # i64.extend32_s without --enable-sign-ext.
 WASM_OPT_FEATURES := --enable-sign-ext --enable-bulk-memory --enable-nontrapping-float-to-int
 
-.PHONY: wasm-exec wasm js js-test
+.PHONY: wasm-exec wasm js js-test js-test-browser
 
 # Copy the Go runtime's JS support shim into the npm package's vendor dir.
 # Go 1.24+ ships it under lib/wasm (previously misc/wasm).
@@ -31,3 +31,8 @@ js: wasm
 
 js-test: js
 	cd js && npm test
+
+# Separate from js-test because it needs a browser binary:
+# run `cd js && npx playwright install chromium` once first.
+js-test-browser: js
+	cd js && npm run test:browser

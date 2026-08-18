@@ -29,6 +29,12 @@ jobs:
         run: go test ./...
       - name: wasm build and npm package tests
         run: make js-test
+      # Gate the release on the bundle browsers actually load, not just the
+      # Node one: they use different loaders and different esbuild output.
+      - name: install chromium
+        run: cd js && npx playwright install --with-deps chromium
+      - name: browser tests
+        run: cd js && npm run test:browser
       # Build every release target without publishing, so a goreleaser or
       # cross-compilation break surfaces here rather than mid-release.
       - name: goreleaser build

@@ -60,11 +60,13 @@
     "build:cjs": "esbuild src/index.ts --bundle --format=cjs --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.cjs.ts --outfile=dist/index.cjs",
     "build:browser": "esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --alias:#wasm-loader=./src/loader.browser.ts --outfile=dist/index.browser.js",
     "build:types": "tsc -p tsconfig.json && node scripts/emit-cts.mjs",
-    "test": "node --test \"test/*.test.*\""
+    "test": "node --test \"test/*.test.cjs\" \"test/convert.test.mjs\"",
+    "test:browser": "node --test test/browser.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
+    "playwright": "^1.57.0",
     "typescript": "^7.0.2"
   }
 }

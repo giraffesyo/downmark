@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Loaded by browser.test.mjs. Exercises the browser bundle the way a real
+     page does: an ES module import, with the wasm fetched relative to the
+     module URL. Nothing here runs until the test calls into it. -->
+<html lang="en">
+<head><meta charset="utf-8" /><title>downmark browser test</title></head>
+<body>
+<script type="module">
+  import { convert, canConvert, version } from "../dist/index.browser.js";
+
+  window.downmark = {
+    convert: async (base64, opts) => {
+      const bin = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      return convert(bin, opts);
+    },
+    convertExpectingError: async (base64, opts) => {
+      const bin = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      try {
+        await convert(bin, opts);
+        return null;
+      } catch (err) {
+        return { name: err.name, code: err.code, message: err.message };
+      }
+    },
+    canConvert,
+    version,
+  };
+  window.downmarkReady = true;
+</script>
+</body>
+</html>

@@ -42,6 +42,13 @@ jobs:
       - uses: ./.github/actions/setup-binaryen
       - name: build wasm + npm package and test
         run: make js-test
+      # The Node tests above run the Node bundle. This is the only coverage of
+      # the bundle browsers actually load, including the fetch and
+      # instantiateStreaming path.
+      - name: install chromium
+        run: cd js && npx playwright install --with-deps chromium
+      - name: browser tests
+        run: cd js && npm run test:browser
       - name: report wasm size
         run: |
           ls -lh js/dist/downmark.wasm
