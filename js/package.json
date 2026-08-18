@@ -64,9 +64,9 @@
     "test:browser": "node --test test/browser.test.mjs"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
-    "typescript": "^5.7.0",
-    "playwright": "^1.57.0"
+    "playwright": "^1.57.0",
+    "typescript": "^7.0.2"
   }
 }
