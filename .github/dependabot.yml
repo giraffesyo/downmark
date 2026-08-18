@@ -8,3 +8,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Build-time only: these never ship to consumers, but they do execute in
+  # the workflow that publishes to npm.
+  - package-ecosystem: npm
+    directory: /js
+    schedule:
+      interval: weekly
