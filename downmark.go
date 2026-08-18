@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -71,7 +70,6 @@ type Engine struct {
 	regs       []registration
 	nextSeq    int
 	noBuiltins bool
-	httpClient *http.Client
 }
 
 // New returns an Engine with only the builtin plain-text converter
@@ -79,7 +77,7 @@ type Engine struct {
 // explicitly from the convert/... packages, or use the all package for an
 // engine with every format wired up.
 func New(opts ...Option) *Engine {
-	e := &Engine{httpClient: http.DefaultClient}
+	e := &Engine{}
 	for _, opt := range opts {
 		opt(e)
 	}
