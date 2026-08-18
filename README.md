@@ -77,7 +77,7 @@ PDF-only consumer ≈ 4.9 MB, CSV-only ≈ 4.5 MB, everything ≈ 7.5 MB.
 ## Node.js and browsers
 
 downmark also ships as an npm package,
-[`@giraffesyo/downmark`](https://www.npmjs.com/package/@giraffesyo/downmark) —
+[`@giraffesyo/downmark`](https://www.npmjs.com/package/@giraffesyo/downmark):
 the full library compiled to WebAssembly with a TypeScript API for Node ≥ 18
 and browsers. See [js/README.md](js/README.md).
 

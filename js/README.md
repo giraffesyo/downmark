@@ -1,6 +1,6 @@
 # @giraffesyo/downmark
 
-Convert documents to Markdown in Node.js and the browser — PDF, DOCX, XLSX, PPTX, DOC (Word 97–2003), HTML, CSV, ZIP archives, and plaintext. This is the pure-Go [downmark](https://github.com/giraffesyo/downmark) library compiled to WebAssembly and wrapped in a small TypeScript API. Zero runtime dependencies; everything runs locally, no network calls.
+Convert documents to Markdown in Node.js and the browser: PDF, DOCX, XLSX, PPTX, DOC (Word 97–2003), HTML, CSV, ZIP archives, and plaintext. This is the pure-Go [downmark](https://github.com/giraffesyo/downmark) library compiled to WebAssembly and wrapped in a small TypeScript API. Zero runtime dependencies; everything runs locally, no network calls.
 
 ## Install
 
@@ -27,7 +27,7 @@ CommonJS works too:
 const { convert } = require("@giraffesyo/downmark");
 ```
 
-The wasm module is loaded lazily on the first call and cached — subsequent calls reuse the same instance.
+The wasm module is loaded lazily on the first call and cached, so subsequent calls reuse the same instance.
 
 ## Usage (browser)
 
@@ -74,7 +74,7 @@ No bundler at all? See [`example/browser.html`](https://github.com/giraffesyo/do
 
 ### `canConvert(hints) → Promise<boolean>`
 
-Whether a format-specific converter claims the format described by the hints (judged from hints alone — no content sniffing). `false` doesn't mean `convert()` must fail; it may still classify the input by its bytes or fall back to plaintext.
+Whether a format-specific converter claims the format described by the hints (judged from hints alone, with no content sniffing). `false` doesn't mean `convert()` must fail; it may still classify the input by its bytes or fall back to plaintext.
 
 ### `init(source?) → Promise<void>`
 
@@ -112,7 +112,7 @@ try {
 
 ## Notes and limitations
 
-- **Conversion is CPU-bound and single-threaded.** A big PDF blocks the thread it runs on — in a browser UI, run conversions inside a Web Worker to keep the page responsive. There is no `timeout` option because a busy wasm instance can't be preempted.
+- **Conversion is CPU-bound and single-threaded.** A big PDF blocks the thread it runs on, so in a browser UI, run conversions inside a Web Worker to keep the page responsive. There is no `timeout` option because a busy wasm instance can't be preempted.
 - **Very large XLSX parts:** a workbook containing any single internal part larger than 16 MiB triggers the underlying Excel library's spill-to-disk path, which fails on wasm (no filesystem). Such files reject with `CONVERSION_FAILED`.
 - The wasm instance is shared per process/page. Conversions are safe to issue concurrently, but they execute one at a time.
 
