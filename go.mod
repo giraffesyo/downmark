@@ -6,7 +6,7 @@ toolchain go1.26.4
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
-	github.com/gabriel-vasile/mimetype v1.4.13
+	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
 	github.com/richardlehane/mscfb v1.0.7
 	github.com/xuri/excelize/v2 v2.11.0
