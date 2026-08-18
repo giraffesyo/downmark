@@ -1,0 +1,25 @@
+name: setup-binaryen
+description: Put a pinned wasm-opt on PATH from the binaryen release archive.
+
+# Installed from the release tarball rather than apt: apt-get hung for close
+# to an hour on a runner once, with nothing to time it out, and its binaryen
+# is old enough to reject the sign-extension ops the Go toolchain emits.
+# Pinning also keeps wasm-opt's output identical across runs.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        VERSION: version_132
+        SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
+      run: |
+        set -euo pipefail
+        cd "$RUNNER_TEMP"
+        curl -fsSL --retry 3 --retry-delay 5 --max-time 300 -o binaryen.tar.gz \
+          "https://github.com/WebAssembly/binaryen/releases/download/${VERSION}/binaryen-${VERSION}-x86_64-linux.tar.gz"
+        echo "${SHA256}  binaryen.tar.gz" | sha256sum -c -
+        tar -xzf binaryen.tar.gz
+        echo "$RUNNER_TEMP/binaryen-${VERSION}/bin" >> "$GITHUB_PATH"
+    - shell: bash
+      run: wasm-opt --version

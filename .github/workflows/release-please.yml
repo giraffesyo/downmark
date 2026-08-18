@@ -13,6 +13,7 @@ jobs:
   # broken commit can never leave a dangling tag or a half-published release.
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,8 +24,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
-      - name: install binaryen (wasm-opt)
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - uses: ./.github/actions/setup-binaryen
       - name: go tests
         run: go test ./...
       - name: wasm build and npm package tests
@@ -42,6 +42,7 @@ jobs:
   release-please:
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write # release commit, tag, and GitHub release
       pull-requests: write # open and update the release PR
@@ -63,6 +64,7 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write # upload release assets
       id-token: write # OIDC for npm trusted publishing
@@ -85,8 +87,7 @@ jobs:
       # Node LTS may be older.
       - name: ensure npm supports trusted publishing
         run: npm install -g npm@latest
-      - name: install binaryen (wasm-opt)
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - uses: ./.github/actions/setup-binaryen
 
       # goreleaser adds binaries to the release release-please already
       # created; .goreleaser.yaml pins mode: keep-existing so its notes survive.
