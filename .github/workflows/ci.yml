@@ -30,6 +30,7 @@ jobs:
 
   wasm:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -38,8 +39,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
-      - name: install binaryen (wasm-opt)
-        run: sudo apt-get update && sudo apt-get install -y binaryen
+      - uses: ./.github/actions/setup-binaryen
       - name: build wasm + npm package and test
         run: make js-test
       - name: report wasm size
