@@ -29,7 +29,7 @@ jobs:
     needs: goreleaser
     permissions:
       contents: write
-      id-token: write # npm --provenance
+      id-token: write # OIDC for npm trusted publishing
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -39,16 +39,20 @@ jobs:
         with:
           node-version: lts/*
           registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; the version bundled with
+      # Node LTS may be older.
+      - name: ensure npm supports trusted publishing
+        run: npm install -g npm@latest
       - name: install binaryen (wasm-opt)
         run: sudo apt-get update && sudo apt-get install -y binaryen
       - name: build wasm + npm package and test
         run: make js-test
       - name: set package version from tag
         run: cd js && npm version --no-git-tag-version "${GITHUB_REF_NAME#v}"
+      # No NODE_AUTH_TOKEN: auth comes from the OIDC id-token, and npm
+      # generates provenance automatically for trusted publishes.
       - name: publish to npm
-        run: cd js && npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: cd js && npm publish --access public
       - name: attach assets to GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
