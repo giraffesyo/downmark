@@ -17,6 +17,12 @@ archives:
       - goos: windows
         formats: [zip]
 
+release:
+  # release-please creates the GitHub release and writes its notes from the
+  # changelog, so goreleaser must only add artifacts to it. keep-existing is
+  # already the default; it is spelled out because the notes now depend on it.
+  mode: keep-existing
+
 checksum:
   name_template: checksums.txt
 
