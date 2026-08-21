@@ -7,6 +7,11 @@
 //
 // Reads file, or stdin if file is omitted or "-", and writes Markdown to
 // stdout (or to -o file).
+//
+// Scanned PDF pages hold no text to extract. Pass -ocr tesseract (or
+// -ocr-cmd, for another engine) to read them with an OCR engine; pages
+// it filled in are marked in the Markdown, and -ocr-max-pages and the
+// timeout flags bound what a large scan is allowed to cost.
 package main
 
 import (
@@ -45,6 +50,7 @@ func run() int {
 	keepDataURIs := flag.Bool("keep-data-uris", false, "keep full data: URIs in output instead of truncating")
 	quiet := flag.Bool("q", false, "suppress the warnings reporting what the conversion lost")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	ocrOpts := registerOCRFlags()
 	flag.Parse()
 
 	if *showVersion {
@@ -74,13 +80,17 @@ func run() int {
 		hints.MIMEType = m
 	}
 
-	engine := all.New(all.Options{KeepDataURIs: *keepDataURIs})
+	pdfOpts, err := ocrOpts.pdfOptions()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "downmark: %v\n", err)
+		return 2
+	}
+	engine := all.New(all.Options{KeepDataURIs: *keepDataURIs, PDF: pdfOpts})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	var res *downmark.Result
-	var err error
 	if path := flag.Arg(0); path == "" || path == "-" {
 		res, err = engine.Convert(ctx, os.Stdin, hints)
 	} else {
