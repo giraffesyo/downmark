@@ -1,16 +1,47 @@
 version: 2
 updates:
+  # Runtime dependencies are part of what this module does — the PDF
+  # extractor's output and speed are downmark's output and speed — so
+  # their updates are released rather than left waiting for the next
+  # feature: a fix commit is a releasable type, and release-please cuts a
+  # patch for it. Minor and patch updates arrive as one pull request per
+  # week; a major arrives on its own, because it deserves its own review.
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: fix
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   # Build-time only: these never ship to consumers, but they do execute in
   # the workflow that publishes to npm.
   - package-ecosystem: npm
     directory: /js
     schedule:
       interval: weekly
+    groups:
+      js-build-tooling:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
