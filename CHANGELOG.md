@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/giraffesyo/downmark/compare/v0.6.0...v0.6.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **deps:** release the PDF extractor upgrade ([#30](https://github.com/giraffesyo/downmark/issues/30)) ([103ea7a](https://github.com/giraffesyo/downmark/commit/103ea7a04569b1a9325cf26058fbf46e5eff8864))
+
 ## [0.6.0](https://github.com/giraffesyo/downmark/compare/v0.5.0...v0.6.0) (2026-08-18)
 
 
