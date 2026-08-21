@@ -20,7 +20,7 @@
 // # Picking formats
 //
 //	e := downmark.New()          // engine with plain-text passthrough only
-//	pdf.Register(e)              // + PDF
+//	pdf.Register(e, pdf.Options{})   // + PDF
 //	docx.Register(e, docx.Options{}) // + DOCX
 //
 //	res, err := e.ConvertFile(ctx, "report.pdf")

@@ -25,6 +25,10 @@ type Options struct {
 	// KeepDataURIs preserves full data: URIs in output (HTML) and embeds
 	// images as data URIs (DOCX) instead of short placeholders.
 	KeepDataURIs bool
+
+	// PDF configures the PDF converter, whose OCR field is how scanned
+	// pages become text at all. See convert/pdf.
+	PDF pdf.Options
 }
 
 // New returns an engine with every converter registered.
@@ -33,7 +37,7 @@ func New(opts Options) *downmark.Engine {
 	html.Register(e, html.Options{KeepDataURIs: opts.KeepDataURIs})
 	csv.Register(e)
 	xlsx.Register(e)
-	pdf.Register(e)
+	pdf.Register(e, opts.PDF)
 	pptx.Register(e)
 	doc.Register(e)
 	docx.Register(e, docx.Options{KeepDataURIs: opts.KeepDataURIs})

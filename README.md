@@ -16,7 +16,7 @@ native dependencies.
 
 | Format | Package | Notes |
 |---|---|---|
-| PDF | `convert/pdf` | Text extraction via [github.com/giraffesyo/pdf](https://github.com/giraffesyo/pdf): Form XObjects (Google Docs exports), Identity-H composite fonts, ToUnicode CMaps, segmented content streams, inline images; hard budgets against decompression bombs. No OCR: scanned PDFs return a clear error. |
+| PDF | `convert/pdf` | Text extraction via [github.com/giraffesyo/pdf](https://github.com/giraffesyo/pdf): Form XObjects (Google Docs exports), Identity-H composite fonts, ToUnicode CMaps, segmented content streams, inline images; hard budgets against decompression bombs. No bundled OCR engine, but scanned pages can be routed to one you supply (`pdf.Options.OCR`); without it they return a clear error. |
 | DOC | `convert/doc` | Word 97–2003 binary documents: bounded Compound Binary parsing, CLX piece-table reconstruction, ANSI/UTF-16 text, and displayed field results. Main-document text only; legacy formatting is not preserved. |
 | DOCX | `convert/docx` | Headings, bold/italic/strikethrough, sub/superscript, nested lists, tables (incl. gridSpan/vMerge), hyperlinks, image placeholders, tracked changes. Equations degrade to plain text. |
 | XLSX | `convert/xlsx` | Every sheet as `## SheetName` + a Markdown table. |
@@ -55,8 +55,8 @@ import (
     "github.com/giraffesyo/downmark/convert/pdf"
 )
 
-e := downmark.New() // core engine (plain-text passthrough builtin)
-pdf.Register(e)     // link only the PDF stack
+e := downmark.New()              // core engine (plain-text passthrough builtin)
+pdf.Register(e, pdf.Options{})   // link only the PDF stack
 
 res, err := e.ConvertFile(ctx, "report.pdf")
 // res.Markdown, res.Title
@@ -133,10 +133,47 @@ PDF text extraction lives in its own module,
 without the converter framework — positioned glyphs, line/word
 reconstruction, and hardening against malformed and hostile files.
 
+### OCR for scanned PDFs
+
+downmark ships no OCR engine and takes on no such dependency. It exposes
+the seam instead: give the PDF converter an implementation and pages the
+content streams cannot read are handed to it.
+
+```go
+import (
+	gpdf "github.com/giraffesyo/pdf"
+	"github.com/giraffesyo/downmark/convert/pdf"
+)
+
+pdf.Register(e, pdf.Options{
+	OCR: gpdf.OCRFunc(func(ctx context.Context, req gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+		// req.Page.Images carries the page's images with their encoded
+		// data and placement; req.Reader and req.Size are the original
+		// PDF, for implementations that render the page instead.
+		return myEngine.Read(ctx, req)
+	}),
+})
+```
+
+The glyphs you return are positioned in unrotated page space (`Image.ToPage`
+maps an engine's image coordinates there) and join the page's own text
+before layout, so OCR'd pages flow into the Markdown like any other.
+
+By default only textless pages are offered — scanned pages, and pages whose
+text was converted to vector outlines. Set `OCRPolicy: gpdf.OCRImagePages`
+for documents that mix typeset text with scanned figures or stamps, or
+`gpdf.OCRAllPages` for every page. Pages are OCR'd concurrently, so the
+implementation must be safe for concurrent use.
+
+An engine that returns an error leaves that page textless rather than
+failing the whole conversion; glyphs returned alongside an error are kept.
+
 ## Limitations
 
-- **No OCR.** Scanned/image-only PDFs and text-converted-to-outlines fail
-  with "no extractable text" rather than silently emitting nothing.
+- **No bundled OCR engine.** Scanned/image-only PDFs and
+  text-converted-to-outlines fail with "no extractable text" rather than
+  silently emitting nothing, unless you supply an OCR implementation — see
+  [OCR for scanned PDFs](#ocr-for-scanned-pdfs).
 - DOC: Word 97–2003 main-document text is extracted, but formatting, tables,
   images, headers/footers, footnotes, comments, and text boxes are not
   reconstructed. Word 6/95 files are not supported.

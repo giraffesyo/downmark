@@ -16,13 +16,40 @@ import (
 	"github.com/giraffesyo/downmark/internal/readerat"
 )
 
+// Options configures the PDF converter.
+type Options struct {
+	// OCR supplies text for pages the content streams cannot: scanned
+	// pages, and pages whose text was converted to vector outlines.
+	// Without one, such pages contribute nothing and a document made
+	// only of them fails with a "no extractable text" error.
+	//
+	// downmark ships no engine; implement gpdf.OCR (or wrap a function
+	// in gpdf.OCRFunc) over the renderer or OCR service you already
+	// have. Each request carries the page's images, with their encoded
+	// data and placement, alongside a reader over the original PDF.
+	// Pages are OCR'd concurrently, so the implementation must be safe
+	// for concurrent use.
+	OCR gpdf.OCR
+
+	// OCRPolicy selects the pages OCR is asked about. The zero value,
+	// gpdf.OCRTextlessPages, asks only about pages that produced no text
+	// of their own; gpdf.OCRImagePages also covers pages that mix
+	// typeset text with scanned figures or stamps. Ignored when OCR is
+	// nil.
+	OCRPolicy gpdf.OCRPolicy
+}
+
 // New returns the PDF converter.
-func New() downmark.Converter { return converter{} }
+func New(opts Options) downmark.Converter { return converter{opts: opts} }
 
 // Register adds the PDF converter to e at the standard priority.
-func Register(e *downmark.Engine) { e.Register(New(), downmark.PrioritySpecific) }
+func Register(e *downmark.Engine, opts Options) {
+	e.Register(New(opts), downmark.PrioritySpecific)
+}
 
-type converter struct{}
+type converter struct {
+	opts Options
+}
 
 func (converter) Name() string { return "pdf" }
 
@@ -32,12 +59,19 @@ func (converter) Accepts(info downmark.StreamInfo) bool {
 
 var errNoText = errors.New("no extractable text; the PDF may be scanned images or use unsupported fonts")
 
-func (converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.StreamInfo) (*downmark.Result, error) {
+func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.StreamInfo) (*downmark.Result, error) {
 	ra, size, err := readerat.From(input)
 	if err != nil {
 		return nil, err
 	}
-	doc, err := gpdf.Extract(ctx, ra, size)
+	// The policy only means something alongside an implementation, and
+	// extraction rejects an out-of-range one, so leave both zero without.
+	var extract gpdf.Options
+	if c.opts.OCR != nil {
+		extract.OCR = c.opts.OCR
+		extract.OCRPolicy = c.opts.OCRPolicy
+	}
+	doc, err := gpdf.ExtractWithOptions(ctx, ra, size, extract)
 	if err != nil {
 		return nil, err
 	}
