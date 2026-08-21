@@ -16,7 +16,7 @@ native dependencies.
 
 | Format | Package | Notes |
 |---|---|---|
-| PDF | `convert/pdf` | Text extraction via [github.com/giraffesyo/pdf](https://github.com/giraffesyo/pdf): Form XObjects (Google Docs exports), Identity-H composite fonts, ToUnicode CMaps, segmented content streams, inline images; hard budgets against decompression bombs. No bundled OCR engine, but scanned pages can be routed to one you supply (`pdf.Options.OCR`); without it they return a clear error. |
+| PDF | `convert/pdf` | Text extraction via [github.com/giraffesyo/pdf](https://github.com/giraffesyo/pdf): Form XObjects (Google Docs exports), Identity-H composite fonts, ToUnicode CMaps, segmented content streams, inline images; hard budgets against decompression bombs. No bundled OCR engine, but scanned pages can be routed to one you supply (`pdf.Options.OCR`), or to a tesseract you have installed (`downmark -ocr tesseract`); without one they return a clear error. |
 | DOC | `convert/doc` | Word 97–2003 binary documents: bounded Compound Binary parsing, CLX piece-table reconstruction, ANSI/UTF-16 text, and displayed field results. Main-document text only; legacy formatting is not preserved. |
 | DOCX | `convert/docx` | Headings, bold/italic/strikethrough, sub/superscript, nested lists, tables (incl. gridSpan/vMerge), hyperlinks, image placeholders, tracked changes. Equations degrade to plain text. |
 | XLSX | `convert/xlsx` | Every sheet as `## SheetName` + a Markdown table. |
@@ -39,8 +39,19 @@ usage: downmark [flags] [file]      # stdin if file omitted or "-"; Markdown →
   -m type           MIME type hint
   -c charset        charset hint, e.g. shift_jis
   -keep-data-uris   keep full data: URIs
+  -q                suppress warnings
   -version          print version
+
+  -ocr engine       read scanned PDF pages with an installed engine ("tesseract")
+  -ocr-cmd command  read them by running command; {} is the image path
+  -ocr-lang lang    OCR language, in tesseract's syntax, e.g. eng+deu
+  -ocr-policy p     textless (default) or images, to also read scanned figures
+  -ocr-max-pages n  OCR at most n pages per document
+  -ocr-page-timeout d, -ocr-timeout d   bound one page, and the whole document
 ```
+
+See [OCR for scanned PDFs](#ocr-for-scanned-pdfs) for what the `-ocr` flags
+do and what they cost.
 
 Exit codes: `0` success, `1` conversion failed, `2` usage error.
 
@@ -173,6 +184,55 @@ downmark ships no OCR engine and takes on no such dependency. It exposes
 the seam instead: give the PDF converter an implementation and pages the
 content streams cannot read are handed to it.
 
+From the CLI, `-ocr tesseract` runs a tesseract you have installed:
+
+```console
+$ downmark -ocr tesseract scan.pdf
+<!-- downmark: page 1 includes OCR text -->
+
+1 Introduction
+Large language models (LLMs) are becoming a crucial building block...
+```
+
+`-ocr-cmd 'engine {} --tsv'` runs anything else that takes an image path
+and writes tesseract-style TSV or plain text to stdout (`{}` is the image
+path, appended if you leave it out), and `-ocr-lang` picks the language.
+OCR costs roughly a second a page, so `-ocr-max-pages`, `-ocr-page-timeout`
+(two minutes by default) and `-ocr-timeout` bound what a large scan is
+allowed to cost; pages turned away by a budget are reported once rather
+than once each. `-ocr-policy images` also reads scanned figures on pages
+that have text of their own.
+
+Pages OCR filled in are marked in the Markdown with an HTML comment, as
+above: OCR text is a reading of the ink rather than the document's own
+characters, and a consumer that cannot tell the two apart cannot weigh
+them differently.
+
+In Go, `ocr/exec` is the same engine the CLI uses, and `ocr` holds the
+parts worth reusing under a different one — mapping an engine's word
+boxes onto the page, and bounding what it may spend:
+
+```go
+import (
+	"github.com/giraffesyo/downmark/ocr"
+	ocrexec "github.com/giraffesyo/downmark/ocr/exec"
+)
+
+engine, err := ocrexec.New(ocrexec.Tesseract("eng"))
+if err != nil {
+	return err // tesseract is not installed
+}
+pdf.Register(e, pdf.Options{
+	OCR: ocr.Limit(engine, ocr.Limits{MaxPages: 30, PerPage: time.Minute}),
+})
+```
+
+Neither package is linked unless you import it, and neither is reachable
+from the WebAssembly build: `-ocr-cmd` runs a process, which the browser
+and Node builds cannot do.
+
+Under it all is the seam itself, which takes any implementation:
+
 ```go
 import (
 	gpdf "github.com/giraffesyo/pdf"
@@ -204,12 +264,26 @@ failing the whole conversion; glyphs returned alongside an error are kept,
 and the failure comes back in [`Result.Warnings`](#warnings) as a
 `gpdf.Warning` with code `WarningOCR`.
 
+Once an engine is configured, a page that is *still* textless afterwards is
+reported too, as a warning matching `pdf.ErrPageNoText`. That is the list
+worth acting on: those pages hold no images an OCR engine could read, so
+their text is vector outlines, and recovering it needs a renderer rather
+than OCR. Without an engine configured these go unreported, because a
+textless page is not by itself a loss — a blank separator page is a normal
+thing for a document to contain.
+
 ## Limitations
 
 - **No bundled OCR engine.** Scanned/image-only PDFs and
   text-converted-to-outlines fail with "no extractable text" rather than
-  silently emitting nothing, unless you supply an OCR implementation — see
+  silently emitting nothing, unless you supply an OCR implementation or
+  install one for `-ocr` to drive — see
   [OCR for scanned PDFs](#ocr-for-scanned-pdfs).
+- **OCR reads a page's images, not a rendering of the page.** Text
+  converted to vector outlines paints no image, so no OCR engine can reach
+  it; that case is reported rather than guessed at. A page scanned as
+  several strips is read strip by strip, which is right except where a line
+  of text is split across two of them.
 - DOC: Word 97–2003 main-document text is extracted, but formatting, tables,
   images, headers/footers, footnotes, comments, and text boxes are not
   reconstructed. Word 6/95 files are not supported.

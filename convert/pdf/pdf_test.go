@@ -171,3 +171,129 @@ func TestCleanPDFCarriesNoWarnings(t *testing.T) {
 		t.Errorf("Warnings = %v, want none: a textless page is not itself a loss", res.Warnings)
 	}
 }
+
+// A textless page is reported only alongside an engine that was meant to
+// fill it in: see pdf.ErrPageNoText. Without one, TestCleanPDFCarriesNoWarnings
+// covers the silence; with one, the pages still empty are the list a
+// caller needs in order to decide what to do next.
+func TestTextlessPageIsReportedWhenOCRDidNotFillItIn(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCR: gpdf.OCRFunc(func(context.Context, gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			// An engine that read the page and found nothing on it:
+			// no glyphs, and no failure to report either.
+			return nil, nil
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(mixedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want the page that stayed empty", res.Warnings)
+	}
+	w := res.Warnings[0]
+	if w.Converter != "pdf" || w.Code != downmark.WarningIncomplete || w.Location != "page 2" {
+		t.Errorf("Warning = %+v, want pdf/incomplete on page 2", w)
+	}
+	if !errors.Is(w, pdf.ErrPageNoText) {
+		t.Errorf("Warning = %v, want it to match ErrPageNoText", w)
+	}
+}
+
+// One problem, one warning: a page the engine failed on is textless
+// because of that failure, and the extractor's warning says more about
+// it than this package could.
+func TestOCRFailureIsNotAlsoReportedAsATextlessPage(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCR: gpdf.OCRFunc(func(context.Context, gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			return nil, errors.New("engine unavailable")
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(mixedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want only the OCR failure", res.Warnings)
+	}
+	if errors.Is(res.Warnings[0], pdf.ErrPageNoText) {
+		t.Errorf("Warning = %v, want the OCR failure rather than a second warning for its consequence", res.Warnings[0])
+	}
+}
+
+// OCR text is a reading of the ink rather than the document's own
+// characters. A consumer that cannot tell the two apart cannot weigh
+// them differently, so the pages it filled in are marked.
+func TestOCRPagesAreMarkedInTheMarkdown(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCR: gpdf.OCRFunc(func(context.Context, gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			return ocrLine("Scanned page text", 700), nil
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(mixedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	const marker = "<!-- downmark: page 2 includes OCR text -->"
+	if !strings.Contains(res.Markdown, marker) {
+		t.Errorf("Markdown = %q, want %q", res.Markdown, marker)
+	}
+	// The marker belongs to the page it describes, not to the typeset
+	// one above it.
+	if i, j := strings.Index(res.Markdown, marker), strings.Index(res.Markdown, "Typeset page"); i < j {
+		t.Errorf("Markdown = %q, want the marker after the typeset page", res.Markdown)
+	}
+	if strings.Count(res.Markdown, "downmark:") != 1 {
+		t.Errorf("Markdown = %q, want exactly one marker: only page 2 was OCR'd", res.Markdown)
+	}
+}
+
+// A page nothing OCR'd carries no marker, so the convention stays out of
+// the way of every PDF that did not need an engine.
+func TestPagesWithoutOCRAreNotMarked(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{})
+	res, err := e.Convert(t.Context(), bytes.NewReader(mixedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if strings.Contains(res.Markdown, "downmark:") {
+		t.Errorf("Markdown = %q, want no marker", res.Markdown)
+	}
+}
+
+// The converter lifts the extractor's page number into Warning.Location,
+// so leaving the extractor's own message intact underneath printed the
+// pair twice: "pdf: page 2: pdf: page 2: ocr: ...".
+func TestWarningDoesNotRepeatTheConverterAndPage(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCR: gpdf.OCRFunc(func(context.Context, gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			return nil, errors.New("engine unavailable")
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(mixedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want exactly one", res.Warnings)
+	}
+	got := res.Warnings[0].Error()
+	const want = "pdf: page 2: ocr: engine unavailable"
+	if got != want {
+		t.Errorf("Warning = %q, want %q", got, want)
+	}
+	// Trimming the message must not cost the caller the typed warning
+	// underneath it.
+	var pw gpdf.Warning
+	if !errors.As(res.Warnings[0], &pw) {
+		t.Fatalf("errors.As did not recover the pdf.Warning from %v", res.Warnings[0])
+	}
+	if pw.Code != gpdf.WarningOCR || pw.Page != 2 {
+		t.Errorf("recovered %+v, want the OCR warning on page 2", pw)
+	}
+}
