@@ -196,8 +196,16 @@ func TestTextlessPageIsReportedWhenOCRDidNotFillItIn(t *testing.T) {
 	if w.Converter != "pdf" || w.Code != downmark.WarningIncomplete || w.Location != "page 2" {
 		t.Errorf("Warning = %+v, want pdf/incomplete on page 2", w)
 	}
+	// The page paints nothing at all, so no OCR engine could have read
+	// it — which is a different problem from a scan, and says so.
+	if !errors.Is(w, pdf.ErrPageNoImages) {
+		t.Errorf("Warning = %v, want it to match ErrPageNoImages", w)
+	}
 	if !errors.Is(w, pdf.ErrPageNoText) {
-		t.Errorf("Warning = %v, want it to match ErrPageNoText", w)
+		t.Errorf("Warning = %v, want ErrPageNoImages to wrap ErrPageNoText", w)
+	}
+	if errors.Is(w, pdf.ErrScannedPage) {
+		t.Errorf("Warning = %v, want the two textless cases to stay distinguishable", w)
 	}
 }
 
@@ -295,5 +303,84 @@ func TestWarningDoesNotRepeatTheConverterAndPage(t *testing.T) {
 	}
 	if pw.Code != gpdf.WarningOCR || pw.Page != 2 {
 		t.Errorf("recovered %+v, want the OCR warning on page 2", pw)
+	}
+}
+
+// scannedPDF has a typeset first page and a second that paints an image
+// and no text of its own: a scan, as far as extraction can tell.
+func scannedPDF() []byte {
+	return pdftest.Build(1,
+		pdftest.Catalog(2),
+		pdftest.Pages(3, 4),
+		pdftest.Page(2, 5, "<< /Font << /F1 8 0 R >> >>"),
+		pdftest.Page(2, 6, "<< /XObject << /Im0 7 0 R >> >>"),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (Typeset page) Tj ET"),
+		pdftest.Stream("", "q 200 0 0 100 72 600 cm /Im0 Do Q"),
+		pdftest.Stream("/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray /BitsPerComponent 8", strings.Repeat("\x40", 4*4)),
+		pdftest.Helvetica(),
+	)
+}
+
+// The point of reporting a scan without an engine configured: a caller
+// converting a corpus for the first time learns which documents OCR
+// would be worth running on, before spending anything on it.
+func TestScannedPageIsReportedWithNoEngineConfigured(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{})
+	res, err := e.Convert(t.Context(), bytes.NewReader(scannedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want the scanned page reported", res.Warnings)
+	}
+	w := res.Warnings[0]
+	if w.Converter != "pdf" || w.Code != downmark.WarningIncomplete || w.Location != "page 2" {
+		t.Errorf("Warning = %+v, want pdf/incomplete on page 2", w)
+	}
+	if !errors.Is(w, pdf.ErrScannedPage) {
+		t.Errorf("Warning = %v, want it to match ErrScannedPage", w)
+	}
+	if errors.Is(w, pdf.ErrPageNoImages) {
+		t.Errorf("Warning = %v, want the two textless cases to stay distinguishable", w)
+	}
+}
+
+// A page that paints images is worth reporting whether or not an engine
+// ran: with one, this is the list of scans it did not manage to read.
+func TestScannedPageIsStillReportedWhenOCRFoundNothing(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCR: gpdf.OCRFunc(func(context.Context, gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			return nil, nil // read it, found nothing
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(scannedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(res.Warnings) != 1 || !errors.Is(res.Warnings[0], pdf.ErrScannedPage) {
+		t.Fatalf("Warnings = %v, want the scan reported as still unread", res.Warnings)
+	}
+}
+
+// An engine that read the page settles the question, so the page is not
+// reported as an unread scan on top of the failure.
+func TestScannedPageThatOCRReadIsNotReported(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCR: gpdf.OCRFunc(func(context.Context, gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			return ocrLine("Scanned page text", 650), nil
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(scannedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if !strings.Contains(res.Markdown, "Scanned page text") {
+		t.Errorf("Markdown = %q, want the OCR'd text", res.Markdown)
+	}
+	if len(res.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none: the page was read", res.Warnings)
 	}
 }

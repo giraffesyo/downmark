@@ -43,8 +43,9 @@ usage: downmark [flags] [file]      # stdin if file omitted or "-"; Markdown →
   -version          print version
 
   -ocr engine       read scanned PDF pages with an installed engine ("tesseract")
-  -ocr-cmd command  read them by running command; {} is the image path
+  -ocr-bin path     run this tesseract instead of the one on PATH
   -ocr-lang lang    OCR language, in tesseract's syntax, e.g. eng+deu
+  -ocr-min-confidence f   drop OCR'd words below this, on tesseract's 0-100 scale
   -ocr-policy p     textless (default) or images, to also read scanned figures
   -ocr-max-pages n  OCR at most n pages per document
   -ocr-page-timeout d, -ocr-timeout d   bound one page, and the whole document
@@ -194,42 +195,44 @@ $ downmark -ocr tesseract scan.pdf
 Large language models (LLMs) are becoming a crucial building block...
 ```
 
-`-ocr-cmd 'engine {} --tsv'` runs anything else that takes an image path
-and writes tesseract-style TSV or plain text to stdout (`{}` is the image
-path, appended if you leave it out), and `-ocr-lang` picks the language.
-OCR costs roughly a second a page, so `-ocr-max-pages`, `-ocr-page-timeout`
-(two minutes by default) and `-ocr-timeout` bound what a large scan is
-allowed to cost; pages turned away by a budget are reported once rather
-than once each. `-ocr-policy images` also reads scanned figures on pages
-that have text of their own.
+`-ocr-lang` picks the language, in tesseract's own syntax (`eng+deu`),
+`-ocr-bin` runs a tesseract from somewhere other than PATH, and
+`-ocr-min-confidence` drops words tesseract was unsure of. `-ocr-policy
+images` also reads scanned figures on pages that have text of their own.
+
+OCR costs roughly a second a page and nothing else in a conversion does,
+so `-ocr-max-pages`, `-ocr-page-timeout` (two minutes by default) and
+`-ocr-timeout` bound what a large scan is allowed to cost. A page turned
+away by a budget is reported once rather than once each, so a long scan
+does not bury its other warnings.
 
 Pages OCR filled in are marked in the Markdown with an HTML comment, as
 above: OCR text is a reading of the ink rather than the document's own
 characters, and a consumer that cannot tell the two apart cannot weigh
 them differently.
 
-In Go, `ocr/exec` is the same engine the CLI uses, and `ocr` holds the
-parts worth reusing under a different one — mapping an engine's word
-boxes onto the page, and bounding what it may spend:
+The engine itself is
+[`pdf/ocr/tesseract`](https://pkg.go.dev/github.com/giraffesyo/pdf/ocr/tesseract),
+the extractor's own reference implementation — it feeds tesseract each
+image, sizes its layout analysis to the page, and maps its word boxes
+back. downmark adds only the part an engine should not have to carry
+itself, in `ocr`: a budget.
 
 ```go
 import (
+	"github.com/giraffesyo/pdf/ocr/tesseract"
 	"github.com/giraffesyo/downmark/ocr"
-	ocrexec "github.com/giraffesyo/downmark/ocr/exec"
 )
 
-engine, err := ocrexec.New(ocrexec.Tesseract("eng"))
-if err != nil {
-	return err // tesseract is not installed
-}
+engine := &tesseract.Engine{Languages: []string{"eng"}}
 pdf.Register(e, pdf.Options{
 	OCR: ocr.Limit(engine, ocr.Limits{MaxPages: 30, PerPage: time.Minute}),
 })
 ```
 
-Neither package is linked unless you import it, and neither is reachable
-from the WebAssembly build: `-ocr-cmd` runs a process, which the browser
-and Node builds cannot do.
+Nothing here is linked unless you import it, and none of it is reachable
+from the WebAssembly build: tesseract is a process, which the browser and
+Node builds cannot start.
 
 Under it all is the seam itself, which takes any implementation:
 
@@ -264,13 +267,21 @@ failing the whole conversion; glyphs returned alongside an error are kept,
 and the failure comes back in [`Result.Warnings`](#warnings) as a
 `gpdf.Warning` with code `WarningOCR`.
 
-Once an engine is configured, a page that is *still* textless afterwards is
-reported too, as a warning matching `pdf.ErrPageNoText`. That is the list
-worth acting on: those pages hold no images an OCR engine could read, so
-their text is vector outlines, and recovering it needs a renderer rather
-than OCR. Without an engine configured these go unreported, because a
-textless page is not by itself a loss — a blank separator page is a normal
-thing for a document to contain.
+A page that produced no text is absent from the Markdown entirely, and
+which of the two reasons it is decides what you can do about it. Both
+warnings match `pdf.ErrPageNoText`; each also matches its own:
+
+- **`pdf.ErrScannedPage`** — the page paints images. It is a scan, and an
+  OCR engine can read it. This is reported whether or not one is
+  configured, so a first pass over a corpus tells you which documents are
+  worth running OCR on before you spend anything on it; with an engine
+  configured, it is the list of scans that engine did not manage to read.
+- **`pdf.ErrPageNoImages`** — the page paints nothing either. Its text was
+  converted to vector outlines, which needs something that renders pages
+  rather than an OCR engine. Reported only when an engine is configured,
+  because a page with neither text nor images is usually just blank — a
+  separator, the back of a duplex scan — and a textless page is not by
+  itself a loss.
 
 ## Limitations
 

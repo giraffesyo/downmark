@@ -1,3 +1,16 @@
+// Package ocr bounds what an OCR implementation may spend on a document,
+// for the PDF converter's OCR seam. It supplies no engine and reads no
+// images: the engine is [github.com/giraffesyo/pdf/ocr/tesseract], or
+// anything else implementing pdf.OCR, and Limit wraps it.
+//
+// OCR costs roughly a second a page and nothing else in a conversion
+// does, which is why this is worth a package of its own rather than a
+// field on an engine.
+//
+//	engine := &tesseract.Engine{Languages: []string{"eng"}}
+//	pdf.Register(e, pdf.Options{
+//		OCR: ocr.Limit(engine, ocr.Limits{MaxPages: 30}),
+//	})
 package ocr
 
 import (

@@ -60,17 +60,28 @@ func (converter) Accepts(info downmark.StreamInfo) bool {
 var errNoText = errors.New("no extractable text; the PDF may be scanned images or use unsupported fonts")
 
 // ErrPageNoText is the error behind the warning reported for a page that
-// produced no text and so is absent from the Markdown entirely.
+// produced no text and so is absent from the Markdown entirely. The two
+// errors below wrap it, one for each reason a page can be in that state;
+// match this one to catch either.
+var ErrPageNoText = errors.New("page produced no text")
+
+// ErrScannedPage reports a page with no text of its own that paints
+// images: a scan, or a full-page figure. An OCR engine can read it, and
+// this is the warning that says so — it is reported whether or not one
+// was configured, so that a caller can decide from a first conversion
+// whether OCR is worth running on a document at all.
+var ErrScannedPage = fmt.Errorf("%w, and paints images: it is a scan, which an OCR engine can read", ErrPageNoText)
+
+// ErrPageNoImages reports a page with neither text nor images. Its text
+// was converted to vector outlines, which needs something that renders
+// pages rather than an OCR engine, or the page is simply blank.
 //
-// It is reported only when Options.OCR is set. A textless page is not by
-// itself a loss — a blank separator page, or the back of a duplex scan,
-// is a normal thing for a document to hold, and reporting every one of
-// them would bury the warnings that matter. Supplying an engine is the
-// caller saying they want such pages recovered, which makes the ones
-// still empty afterwards worth naming: they are where an OCR engine did
-// not help and a renderer might, because their text is vector outlines
-// rather than ink. Match with errors.Is.
-var ErrPageNoText = errors.New("page produced no text; it may be a scan, or text converted to vector outlines")
+// Because blank pages are ordinary — a separator, the back of a duplex
+// scan — this is reported only when Options.OCR is set. Supplying an
+// engine is the caller saying they want textless pages recovered, which
+// makes the ones no engine can reach worth naming; without one, the
+// silence is the same silence a blank page has always had.
+var ErrPageNoImages = fmt.Errorf("%w, and paints no images: its text may be vector outlines, which needs a renderer rather than OCR", ErrPageNoText)
 
 func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.StreamInfo) (*downmark.Result, error) {
 	ra, size, err := readerat.From(input)
@@ -91,24 +102,34 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 	limit, _ := downmark.ResultLimit(ctx)
 	b := limitbuf.New(limit)
 	ws := warnings(doc.Warnings)
-	// See ErrPageNoText for why a textless page is worth reporting only
-	// alongside an engine that was meant to fill it in. Pages the
-	// extractor already reported an OCR failure for are left to that
-	// warning, so that one problem is reported once.
-	reportTextless := c.opts.OCR != nil
+	// Pages the extractor already reported an OCR failure for are left
+	// to that warning, which says more about them than this could.
 	ocrFailed := ocrFailures(doc.Warnings)
+	hasOCR := c.opts.OCR != nil
 	for _, page := range doc.Pages {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		text := page.Text()
 		if text == "" {
-			if reportTextless && !ocrFailed[page.Number] {
+			// Which of the two it is decides what the caller can do
+			// about it, and the page's image count is what separates
+			// them — reported by the extractor whether or not the image
+			// data behind it was ever read.
+			var why error
+			switch {
+			case ocrFailed[page.Number]:
+			case page.ImageCount > 0:
+				why = ErrScannedPage
+			case hasOCR:
+				why = ErrPageNoImages
+			}
+			if why != nil {
 				ws = downmark.AppendWarning(ws, downmark.Warning{
 					Converter: "pdf",
 					Code:      downmark.WarningIncomplete,
 					Location:  fmt.Sprintf("page %d", page.Number),
-					Err:       ErrPageNoText,
+					Err:       why,
 				})
 			}
 			continue
