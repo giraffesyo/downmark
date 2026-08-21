@@ -43,8 +43,9 @@ usage: downmark [flags] [file]      # stdin if file omitted or "-"; Markdown →
   -version          print version
 
   -ocr engine       read scanned PDF pages with an installed engine ("tesseract")
-  -ocr-cmd command  read them by running command; {} is the image path
+  -ocr-bin path     run this tesseract instead of the one on PATH
   -ocr-lang lang    OCR language, in tesseract's syntax, e.g. eng+deu
+  -ocr-min-confidence f   drop OCR'd words below this, on tesseract's 0-100 scale
   -ocr-policy p     textless (default) or images, to also read scanned figures
   -ocr-max-pages n  OCR at most n pages per document
   -ocr-page-timeout d, -ocr-timeout d   bound one page, and the whole document
@@ -194,42 +195,56 @@ $ downmark -ocr tesseract scan.pdf
 Large language models (LLMs) are becoming a crucial building block...
 ```
 
-`-ocr-cmd 'engine {} --tsv'` runs anything else that takes an image path
-and writes tesseract-style TSV or plain text to stdout (`{}` is the image
-path, appended if you leave it out), and `-ocr-lang` picks the language.
-OCR costs roughly a second a page, so `-ocr-max-pages`, `-ocr-page-timeout`
-(two minutes by default) and `-ocr-timeout` bound what a large scan is
-allowed to cost; pages turned away by a budget are reported once rather
-than once each. `-ocr-policy images` also reads scanned figures on pages
-that have text of their own.
+`-ocr-lang` picks the language, in tesseract's own syntax (`eng+deu`),
+`-ocr-bin` runs a tesseract from somewhere other than PATH, and
+`-ocr-min-confidence` drops words tesseract was unsure of. `-ocr-policy
+images` also reads scanned figures on pages that have text of their own.
+
+OCR costs roughly a second a page and nothing else in a conversion does,
+so `-ocr-max-pages`, `-ocr-page-timeout` (two minutes by default) and
+`-ocr-timeout` bound what a large scan is allowed to cost. A page turned
+away by a budget is reported once rather than once each, so a long scan
+does not bury its other warnings.
 
 Pages OCR filled in are marked in the Markdown with an HTML comment, as
 above: OCR text is a reading of the ink rather than the document's own
 characters, and a consumer that cannot tell the two apart cannot weigh
 them differently.
 
-In Go, `ocr/exec` is the same engine the CLI uses, and `ocr` holds the
-parts worth reusing under a different one — mapping an engine's word
-boxes onto the page, and bounding what it may spend:
+The engine itself is
+[`pdf/ocr/tesseract`](https://pkg.go.dev/github.com/giraffesyo/pdf/ocr/tesseract),
+the extractor's own reference implementation — it feeds tesseract each
+image, sizes its layout analysis to the page, and maps its word boxes
+back. downmark adds only what an engine should not have to carry itself,
+in `ocr`: a budget, and a guard for the pages no image-reading engine can
+help with.
 
 ```go
 import (
+	"github.com/giraffesyo/pdf/ocr/tesseract"
 	"github.com/giraffesyo/downmark/ocr"
-	ocrexec "github.com/giraffesyo/downmark/ocr/exec"
 )
 
-engine, err := ocrexec.New(ocrexec.Tesseract("eng"))
-if err != nil {
-	return err // tesseract is not installed
-}
+engine := &tesseract.Engine{Languages: []string{"eng"}}
 pdf.Register(e, pdf.Options{
-	OCR: ocr.Limit(engine, ocr.Limits{MaxPages: 30, PerPage: time.Minute}),
+	OCR: ocr.RequireImages(ocr.Limit(engine, ocr.Limits{
+		MaxPages: 30,
+		PerPage:  time.Minute,
+	})),
 })
 ```
 
-Neither package is linked unless you import it, and neither is reachable
-from the WebAssembly build: `-ocr-cmd` runs a process, which the browser
-and Node builds cannot do.
+`RequireImages` is what turns "this page came back empty" into something
+actionable. An engine that reads images returns quietly for a page that
+paints none, which is indistinguishable from a scan it read and found
+blank — and the two want different things next. A scan is worth another
+language or another engine; a page with no images has had its text
+converted to vector outlines and needs something that renders pages,
+which no OCR engine is.
+
+Nothing here is linked unless you import it, and none of it is reachable
+from the WebAssembly build: tesseract is a process, which the browser and
+Node builds cannot start.
 
 Under it all is the seam itself, which takes any implementation:
 
