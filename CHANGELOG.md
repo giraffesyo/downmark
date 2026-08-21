@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/giraffesyo/downmark/compare/v0.6.1...v0.7.0) (2026-08-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* PDF OCR seam and a warnings channel for what a conversion lost ([#32](https://github.com/giraffesyo/downmark/issues/32))
+
+### Features
+
+* PDF OCR seam and a warnings channel for what a conversion lost ([#32](https://github.com/giraffesyo/downmark/issues/32)) ([95101f0](https://github.com/giraffesyo/downmark/commit/95101f0ee2b2aa5f0e017de2eff222a00c031c7c))
+
 ## [0.6.1](https://github.com/giraffesyo/downmark/compare/v0.6.0...v0.6.1) (2026-08-21)
 
 
