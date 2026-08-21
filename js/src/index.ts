@@ -33,12 +33,33 @@ export interface ConvertOptions extends ConvertHints {
   resultLimit?: number;
 }
 
+/** What a conversion classifies itself as having lost. */
+export type WarningCode = "incomplete" | "skipped";
+
+/**
+ * A recoverable problem that left a conversion incomplete. Its presence
+ * does not mean the conversion failed: the Markdown is usable, but it is
+ * not everything the input held.
+ */
+export interface ConvertWarning {
+  /** Converter that produced it, e.g. "pdf". */
+  converter: string;
+  /** What the output lost. */
+  code: WarningCode;
+  /** Affected part in the format's own terms ("page 12"), or "". */
+  location: string;
+  /** Human-readable rendering of the underlying failure. */
+  message: string;
+}
+
 /** The outcome of a successful conversion. */
 export interface ConvertResult {
   /** Normalized Markdown output. */
   markdown: string;
   /** Document title if the format provides one, else "". */
   title: string;
+  /** What the conversion lost; empty when it lost nothing. */
+  warnings: ConvertWarning[];
 }
 
 /**

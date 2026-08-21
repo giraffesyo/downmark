@@ -99,6 +99,7 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 		outputLimit = min(outputLimit, limit)
 	}
 	var out strings.Builder
+	var warnings []downmark.Warning
 	converted := 0
 	var memberBytes int64
 	for _, file := range zr.File {
@@ -108,10 +109,24 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 		if skipMember(file) {
 			continue
 		}
+		if isNestedArchive(file) {
+			warnings = downmark.AppendWarning(warnings, downmark.Warning{
+				Converter: "zip",
+				Code:      downmark.WarningSkipped,
+				Location:  file.Name,
+				Err:       errNestedArchive,
+			})
+			continue
+		}
 		if converted >= maxConvertedMembers {
 			if err := appendLimited(&out, "\n[... additional archive members skipped ...]\n", outputLimit); err != nil {
 				return nil, err
 			}
+			warnings = downmark.AppendWarning(warnings, downmark.Warning{
+				Converter: "zip",
+				Code:      downmark.WarningSkipped,
+				Err:       fmt.Errorf("archive holds more than %d convertible members", maxConvertedMembers),
+			})
 			break
 		}
 
@@ -127,6 +142,12 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 			if err := appendSection(&out, file.Name, fmt.Sprintf("[skipped: %v]", err), outputLimit); err != nil {
 				return nil, err
 			}
+			warnings = downmark.AppendWarning(warnings, downmark.Warning{
+				Converter: "zip",
+				Code:      downmark.WarningIncomplete,
+				Location:  file.Name,
+				Err:       err,
+			})
 			converted++
 			continue
 		}
@@ -147,6 +168,14 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 		if err != nil {
 			switch {
 			case errors.Is(err, downmark.ErrUnsupportedFormat), errors.Is(err, errNestedArchive):
+				// Left out of the Markdown entirely, so the warning is
+				// the only trace this member was ever here.
+				warnings = downmark.AppendWarning(warnings, downmark.Warning{
+					Converter: "zip",
+					Code:      downmark.WarningSkipped,
+					Location:  file.Name,
+					Err:       err,
+				})
 				continue
 			case errors.Is(err, downmark.ErrResultTooLarge):
 				return nil, outputLimitError(outputLimit)
@@ -154,6 +183,12 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 				if err := appendSection(&out, file.Name, fmt.Sprintf("[conversion failed: %v]", err), outputLimit); err != nil {
 					return nil, err
 				}
+				warnings = downmark.AppendWarning(warnings, downmark.Warning{
+					Converter: "zip",
+					Code:      downmark.WarningIncomplete,
+					Location:  file.Name,
+					Err:       err,
+				})
 				converted++
 				continue
 			}
@@ -161,6 +196,7 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 		if err := appendSection(&out, file.Name, res.Markdown, outputLimit); err != nil {
 			return nil, err
 		}
+		warnings = relocate(warnings, file.Name, res.Warnings)
 		converted++
 	}
 
@@ -170,15 +206,41 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 	if out.Len() == 0 {
 		return nil, errNoConvertible
 	}
-	return &downmark.Result{Markdown: out.String()}, nil
+	return &downmark.Result{Markdown: out.String(), Warnings: warnings}, nil
 }
 
+// isNestedArchive reports the members skipMember drops for being archives
+// of their own. Unlike the rest of what it drops — directories, dotfiles,
+// __MACOSX bookkeeping — a nested archive is content the caller asked for
+// and did not get, so it is worth a warning.
+func isNestedArchive(file *stdzip.File) bool {
+	return strings.EqualFold(path.Ext(path.Base(file.Name)), ".zip")
+}
+
+// relocate re-anchors a member's own warnings inside the archive, so that
+// a page number from a PDF nested two levels down still says which file
+// it came from. The converter that produced each warning is left alone:
+// the PDF reader found it, not the archive reader.
+func relocate(ws []downmark.Warning, name string, member []downmark.Warning) []downmark.Warning {
+	for _, w := range member {
+		if w.Location == "" {
+			w.Location = name
+		} else {
+			w.Location = name + ": " + w.Location
+		}
+		ws = downmark.AppendWarning(ws, w)
+	}
+	return ws
+}
+
+// skipMember reports the members that are not content at all: directories,
+// macOS resource-fork bookkeeping, dotfiles. They are dropped silently.
+// Nested archives are dropped too, but by isNestedArchive, which warns.
 func skipMember(file *stdzip.File) bool {
 	base := path.Base(file.Name)
 	return file.FileInfo().IsDir() ||
 		strings.HasPrefix(file.Name, "__MACOSX/") ||
-		strings.HasPrefix(base, ".") ||
-		strings.EqualFold(path.Ext(base), ".zip")
+		strings.HasPrefix(base, ".")
 }
 
 func readMember(ctx context.Context, file *stdzip.File, remaining int64) ([]byte, int64, error) {

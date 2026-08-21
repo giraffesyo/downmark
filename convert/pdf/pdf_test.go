@@ -108,3 +108,66 @@ func TestOCRFailureLeavesPageTextless(t *testing.T) {
 		t.Fatalf("err = %v, want the no-extractable-text failure", err)
 	}
 }
+
+// mixedPDF has one typeset page and one textless page, so a failure on
+// the second still leaves a successful conversion to attach warnings to.
+func mixedPDF() []byte {
+	return pdftest.Build(1,
+		pdftest.Catalog(2),
+		pdftest.Pages(3, 4),
+		pdftest.Page(2, 5, "<< /Font << /F1 7 0 R >> >>"),
+		pdftest.Page(2, 6, "<< >>"),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (Typeset page) Tj ET"),
+		pdftest.Stream("", ""),
+		pdftest.Helvetica(),
+	)
+}
+
+func TestOCRFailureSurfacesAsWarning(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCR: gpdf.OCRFunc(func(context.Context, gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			return nil, errors.New("engine unavailable")
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(mixedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if !strings.Contains(res.Markdown, "Typeset page") {
+		t.Fatalf("Markdown = %q, want the page that did convert", res.Markdown)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want exactly the OCR failure", res.Warnings)
+	}
+	w := res.Warnings[0]
+	if w.Converter != "pdf" || w.Code != downmark.WarningIncomplete || w.Location != "page 2" {
+		t.Errorf("Warning = %+v, want pdf/incomplete on page 2", w)
+	}
+
+	// The core vocabulary is coarse on purpose; the extractor's own
+	// classification has to survive the boundary for a caller that wants
+	// to tell an OCR failure from a malformed page.
+	var pw gpdf.Warning
+	if !errors.As(w.Err, &pw) {
+		t.Fatalf("Err = %v, want a pdf.Warning recoverable with errors.As", w.Err)
+	}
+	if pw.Code != gpdf.WarningOCR {
+		t.Errorf("pdf.Warning.Code = %q, want %q", pw.Code, gpdf.WarningOCR)
+	}
+	if pw.Page != 2 {
+		t.Errorf("pdf.Warning.Page = %d, want 2", pw.Page)
+	}
+}
+
+func TestCleanPDFCarriesNoWarnings(t *testing.T) {
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{})
+	res, err := e.Convert(t.Context(), bytes.NewReader(mixedPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(res.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none: a textless page is not itself a loss", res.Warnings)
+	}
+}

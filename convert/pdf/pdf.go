@@ -98,7 +98,29 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 	if strings.TrimSpace(text) == "" {
 		return nil, errNoText
 	}
-	return &downmark.Result{Markdown: text}, nil
+	return &downmark.Result{Markdown: text, Warnings: warnings(doc.Warnings)}, nil
+}
+
+// warnings translates the extractor's warnings into the engine's. Every
+// one of them means the same thing at this altitude — text the document
+// held is missing from the output — so they all map to
+// WarningIncomplete, and callers who want the extractor's finer
+// distinction reach it with errors.As on Err.
+func warnings(in []gpdf.Warning) []downmark.Warning {
+	var out []downmark.Warning
+	for _, w := range in {
+		var location string
+		if w.Page > 0 {
+			location = fmt.Sprintf("page %d", w.Page)
+		}
+		out = downmark.AppendWarning(out, downmark.Warning{
+			Converter: "pdf",
+			Code:      downmark.WarningIncomplete,
+			Location:  location,
+			Err:       w,
+		})
+	}
+	return out
 }
 
 func pdfResultLimitError(limit int) error {

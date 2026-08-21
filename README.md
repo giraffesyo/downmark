@@ -126,6 +126,40 @@ Errors: `errors.Is(err, downmark.ErrUnsupportedFormat)` when nothing
 matched; `*downmark.ConversionError` (with per-converter attempts) when
 converters matched but failed.
 
+## Warnings
+
+A conversion can succeed and still lose something — a PDF page that would
+not decode, an archive member in a format nothing converts. `Result.Warnings`
+reports what was lost, and is empty when nothing was:
+
+```go
+for _, w := range res.Warnings {
+	fmt.Printf("%s: %s\n", w.Code, w) // "incomplete: pdf: page 12: ..."
+}
+```
+
+`Code` is deliberately coarse — `WarningIncomplete` (content the input held
+is missing from the output) and `WarningSkipped` (a whole unit was never
+attempted) — because it is the part every format can answer. For detail,
+unwrap to the source library's own error:
+
+```go
+var pw gpdf.Warning
+if errors.As(w.Err, &pw) && pw.Code == gpdf.WarningOCR {
+	// this page's text is missing because OCR failed on it
+}
+```
+
+Warnings describe what varies per input. Limitations every file of a format
+shares — DOCX flattening nested tables, DOC dropping headers — are in
+[Limitations](#limitations) instead, so that anything in `Warnings` is
+something that happened to *this* document. The list is bounded at
+`MaxWarnings` (256); at the bound the final entry says so rather than being
+one more warning.
+
+The `downmark` CLI prints warnings to stderr, leaving stdout to the
+Markdown; `-q` suppresses them.
+
 ## PDF extraction
 
 PDF text extraction lives in its own module,
@@ -166,7 +200,9 @@ for documents that mix typeset text with scanned figures or stamps, or
 implementation must be safe for concurrent use.
 
 An engine that returns an error leaves that page textless rather than
-failing the whole conversion; glyphs returned alongside an error are kept.
+failing the whole conversion; glyphs returned alongside an error are kept,
+and the failure comes back in [`Result.Warnings`](#warnings) as a
+`gpdf.Warning` with code `WarningOCR`.
 
 ## Limitations
 
@@ -186,8 +222,8 @@ failing the whole conversion; glyphs returned alongside an error are kept.
 - OOXML archives (DOCX/XLSX/PPTX) are capped at 64 MiB compressed, 128 MiB
   total uncompressed, 16 MiB per decompressed part, and 1,024 entries; XML
   structure is also bounded to prevent small parts from creating huge trees.
-- ZIP archives nested inside ZIP archives are skipped; archive conversion does
-  not recurse.
+- ZIP archives nested inside ZIP archives are skipped (reported in
+  `Result.Warnings`); archive conversion does not recurse.
 - Non-seekable inputs (stdin, network streams) are buffered in memory. Matching
   ZIP and Office inputs are rejected while buffering at their 64 MiB hard
   limit; formats without an input-limit converter remain fully buffered.

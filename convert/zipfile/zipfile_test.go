@@ -394,3 +394,120 @@ func TestNoConvertibleMembers(t *testing.T) {
 		t.Fatalf("err = %v, want no-convertible-files error", err)
 	}
 }
+
+// warningFor returns the single warning at location, or fails.
+func warningFor(t *testing.T, ws []downmark.Warning, location string) downmark.Warning {
+	t.Helper()
+	var found []downmark.Warning
+	for _, w := range ws {
+		if w.Location == location {
+			found = append(found, w)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("warnings at %q = %v, want exactly one (all: %v)", location, found, ws)
+	}
+	return found[0]
+}
+
+// A nested archive is content the caller asked for and did not get, so
+// unlike the dotfiles and resource forks beside it, it has to be reported.
+func TestNestedArchiveWarns(t *testing.T) {
+	data := buildArchive(t,
+		testMember{name: "__MACOSX/notes.txt", data: []byte("resource fork junk")},
+		testMember{name: ".hidden.txt", data: []byte("root dotfile junk")},
+		testMember{name: "inner.ZIP", data: []byte("nested archive junk")},
+		testMember{name: "visible.txt", data: []byte("visible body")},
+	)
+	res, err := convertArchive(t, archiveEngine(), data)
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want only the nested archive", res.Warnings)
+	}
+	w := warningFor(t, res.Warnings, "inner.ZIP")
+	if w.Code != downmark.WarningSkipped || w.Converter != "zip" {
+		t.Errorf("Warning = %+v, want zip/skipped", w)
+	}
+}
+
+func TestUnconvertibleMemberWarns(t *testing.T) {
+	data := buildArchive(t,
+		testMember{name: "mystery.bin", data: []byte{0x00, 0x01, 0xff, 0xfe, 0x00}},
+		testMember{name: "visible.txt", data: []byte("visible body")},
+	)
+	res, err := convertArchive(t, archiveEngine(), data)
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	w := warningFor(t, res.Warnings, "mystery.bin")
+	if w.Code != downmark.WarningSkipped {
+		t.Errorf("Code = %q, want %q", w.Code, downmark.WarningSkipped)
+	}
+	// Nothing about this member reaches the Markdown, so the warning is
+	// its only trace.
+	if strings.Contains(res.Markdown, "mystery.bin") {
+		t.Errorf("unconvertible member should not appear in output:\n%s", res.Markdown)
+	}
+}
+
+func TestFailedMemberWarnsAndStaysInline(t *testing.T) {
+	e := archiveEngine()
+	e.Register(failingMemberConverter{}, downmark.PrioritySpecific)
+	data := buildArchive(t, testMember{name: "broken.fail", data: []byte{0, 1, 2, 3}})
+
+	res, err := convertArchive(t, e, data)
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	w := warningFor(t, res.Warnings, "broken.fail")
+	if w.Code != downmark.WarningIncomplete {
+		t.Errorf("Code = %q, want %q", w.Code, downmark.WarningIncomplete)
+	}
+	// The in-band note stays: a human reading the Markdown should still
+	// see that something was there and did not convert.
+	if !strings.Contains(res.Markdown, "[conversion failed:") {
+		t.Errorf("inline failure note missing:\n%s", res.Markdown)
+	}
+}
+
+// warningMember reports a warning of its own, standing in for any nested
+// converter (a PDF three levels down) that has something to say.
+type warningMemberConverter struct{}
+
+func (warningMemberConverter) Name() string { return "member-warner" }
+func (warningMemberConverter) Accepts(info downmark.StreamInfo) bool {
+	return info.Extension == ".warn"
+}
+func (warningMemberConverter) Convert(context.Context, io.ReadSeeker, downmark.StreamInfo) (*downmark.Result, error) {
+	return &downmark.Result{
+		Markdown: "converted body",
+		Warnings: []downmark.Warning{{
+			Converter: "member-warner",
+			Code:      downmark.WarningIncomplete,
+			Location:  "page 3",
+			Err:       errors.New("region truncated"),
+		}},
+	}, nil
+}
+
+func TestMemberWarningsAreRelocatedNotRelabelled(t *testing.T) {
+	e := archiveEngine()
+	e.Register(warningMemberConverter{}, downmark.PrioritySpecific)
+	data := buildArchive(t, testMember{name: "docs/report.warn", data: []byte("body")})
+
+	res, err := convertArchive(t, e, data)
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	w := warningFor(t, res.Warnings, "docs/report.warn: page 3")
+	// The member's converter found it, so it keeps the credit; only the
+	// location gains the archive path.
+	if w.Converter != "member-warner" {
+		t.Errorf("Converter = %q, want the member's own converter", w.Converter)
+	}
+	if w.Code != downmark.WarningIncomplete {
+		t.Errorf("Code = %q, want it preserved", w.Code)
+	}
+}

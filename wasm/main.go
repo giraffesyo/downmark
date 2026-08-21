@@ -84,6 +84,22 @@ func hintsFrom(opts js.Value) downmark.StreamInfo {
 
 // errorObject builds the structured rejection value the JS wrapper rehydrates
 // into typed error classes.
+// warningValues renders the conversion's warnings for JS. The structured
+// fields survive the boundary; the Go error behind each one cannot, so it
+// crosses as its message.
+func warningValues(ws []downmark.Warning) []any {
+	out := make([]any, len(ws))
+	for i, w := range ws {
+		out[i] = map[string]any{
+			"converter": w.Converter,
+			"code":      string(w.Code),
+			"location":  w.Location,
+			"message":   w.Error(),
+		}
+	}
+	return out
+}
+
 func errorObject(err error) js.Value {
 	code := "INTERNAL"
 	obj := map[string]any{"name": "DownmarkError"}
@@ -168,6 +184,7 @@ func convert(_ js.Value, args []js.Value) any {
 			resolve.Invoke(js.ValueOf(map[string]any{
 				"markdown": res.Markdown,
 				"title":    res.Title,
+				"warnings": warningValues(res.Warnings),
 			}))
 		}()
 		return nil

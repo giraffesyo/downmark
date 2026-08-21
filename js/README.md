@@ -59,7 +59,7 @@ No bundler at all? See [`example/browser.html`](https://github.com/giraffesyo/do
 
 ## API
 
-### `convert(data, options?) → Promise<{ markdown, title }>`
+### `convert(data, options?) → Promise<{ markdown, title, warnings }>`
 
 `data` is a `Uint8Array` or `ArrayBuffer`. All options are optional, but the more hints you give the better the format detection:
 
@@ -71,6 +71,21 @@ No bundler at all? See [`example/browser.html`](https://github.com/giraffesyo/do
 | `charset`     | `string`  | IANA charset name for text inputs, e.g. `"shift_jis"`                   |
 | `keepDataUris`| `boolean` | Keep full `data:` URIs (HTML) / embed images as data URIs (DOCX)        |
 | `resultLimit` | `number`  | Reject results larger than this many bytes with `RESULT_TOO_LARGE`      |
+
+`warnings` reports what the conversion lost, and is empty when it lost
+nothing. A conversion that returns warnings still succeeded — the Markdown is
+usable, it just is not everything the input held.
+
+```js
+const { markdown, warnings } = await convert(data, { filename: "scan.pdf" });
+for (const w of warnings) {
+  // { converter: "pdf", code: "incomplete", location: "page 12", message: "..." }
+  console.warn(`${w.code}: ${w.message}`);
+}
+```
+
+`code` is either `"incomplete"` (content the input held is missing from the
+output) or `"skipped"` (a whole unit was never attempted).
 
 ### `canConvert(hints) → Promise<boolean>`
 

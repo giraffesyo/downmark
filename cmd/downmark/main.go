@@ -43,6 +43,7 @@ func run() int {
 	mimeHint := flag.String("m", "", "MIME type hint, e.g. `application/pdf`")
 	charsetHint := flag.String("c", "", "charset hint, e.g. `shift_jis`")
 	keepDataURIs := flag.Bool("keep-data-uris", false, "keep full data: URIs in output instead of truncating")
+	quiet := flag.Bool("q", false, "suppress the warnings reporting what the conversion lost")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -103,6 +104,10 @@ func run() int {
 		return 1
 	}
 
+	if !*quiet {
+		printWarnings(res.Warnings)
+	}
+
 	if *outPath != "" {
 		if err := writeOutput(*outPath, res.Markdown); err != nil {
 			fmt.Fprintf(os.Stderr, "downmark: %v\n", err)
@@ -115,6 +120,15 @@ func run() int {
 		return 1
 	}
 	return 0
+}
+
+// printWarnings reports what the conversion lost on stderr, leaving stdout
+// to the Markdown alone. Conversion succeeded, so this never changes the
+// exit status.
+func printWarnings(ws []downmark.Warning) {
+	for _, w := range ws {
+		fmt.Fprintf(os.Stderr, "downmark: %s: %v\n", w.Code, w)
+	}
 }
 
 // writeOutput creates the output file with umask-derived permissions and
