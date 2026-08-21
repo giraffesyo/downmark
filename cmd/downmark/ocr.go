@@ -70,15 +70,12 @@ func (f *ocrFlags) pdfOptions() (pdf.Options, error) {
 	if err != nil {
 		return pdf.Options{}, err
 	}
-	// RequireImages goes outside the budget: a page an image-reading
-	// engine cannot help with should not spend one of the pages the
-	// budget allows.
 	bounded := ocr.Limit(engine, ocr.Limits{
 		MaxPages: *f.maxPages,
 		PerPage:  *f.pageTimeout,
 		Total:    *f.timeout,
 	})
-	return pdf.Options{OCR: ocr.RequireImages(bounded), OCRPolicy: policy}, nil
+	return pdf.Options{OCR: bounded, OCRPolicy: policy}, nil
 }
 
 // newEngine resolves the named engine. The heavy lifting — running the

@@ -215,9 +215,8 @@ The engine itself is
 [`pdf/ocr/tesseract`](https://pkg.go.dev/github.com/giraffesyo/pdf/ocr/tesseract),
 the extractor's own reference implementation — it feeds tesseract each
 image, sizes its layout analysis to the page, and maps its word boxes
-back. downmark adds only what an engine should not have to carry itself,
-in `ocr`: a budget, and a guard for the pages no image-reading engine can
-help with.
+back. downmark adds only the part an engine should not have to carry
+itself, in `ocr`: a budget.
 
 ```go
 import (
@@ -227,20 +226,9 @@ import (
 
 engine := &tesseract.Engine{Languages: []string{"eng"}}
 pdf.Register(e, pdf.Options{
-	OCR: ocr.RequireImages(ocr.Limit(engine, ocr.Limits{
-		MaxPages: 30,
-		PerPage:  time.Minute,
-	})),
+	OCR: ocr.Limit(engine, ocr.Limits{MaxPages: 30, PerPage: time.Minute}),
 })
 ```
-
-`RequireImages` is what turns "this page came back empty" into something
-actionable. An engine that reads images returns quietly for a page that
-paints none, which is indistinguishable from a scan it read and found
-blank — and the two want different things next. A scan is worth another
-language or another engine; a page with no images has had its text
-converted to vector outlines and needs something that renders pages,
-which no OCR engine is.
 
 Nothing here is linked unless you import it, and none of it is reachable
 from the WebAssembly build: tesseract is a process, which the browser and
@@ -279,13 +267,21 @@ failing the whole conversion; glyphs returned alongside an error are kept,
 and the failure comes back in [`Result.Warnings`](#warnings) as a
 `gpdf.Warning` with code `WarningOCR`.
 
-Once an engine is configured, a page that is *still* textless afterwards is
-reported too, as a warning matching `pdf.ErrPageNoText`. That is the list
-worth acting on: those pages hold no images an OCR engine could read, so
-their text is vector outlines, and recovering it needs a renderer rather
-than OCR. Without an engine configured these go unreported, because a
-textless page is not by itself a loss — a blank separator page is a normal
-thing for a document to contain.
+A page that produced no text is absent from the Markdown entirely, and
+which of the two reasons it is decides what you can do about it. Both
+warnings match `pdf.ErrPageNoText`; each also matches its own:
+
+- **`pdf.ErrScannedPage`** — the page paints images. It is a scan, and an
+  OCR engine can read it. This is reported whether or not one is
+  configured, so a first pass over a corpus tells you which documents are
+  worth running OCR on before you spend anything on it; with an engine
+  configured, it is the list of scans that engine did not manage to read.
+- **`pdf.ErrPageNoImages`** — the page paints nothing either. Its text was
+  converted to vector outlines, which needs something that renders pages
+  rather than an OCR engine. Reported only when an engine is configured,
+  because a page with neither text nor images is usually just blank — a
+  separator, the back of a duplex scan — and a textless page is not by
+  itself a loss.
 
 ## Limitations
 
