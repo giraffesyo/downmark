@@ -16,7 +16,7 @@ native dependencies.
 
 | Format | Package | Notes |
 |---|---|---|
-| PDF | `convert/pdf` | Text extraction via [github.com/giraffesyo/pdf](https://github.com/giraffesyo/pdf): Form XObjects (Google Docs exports), Identity-H composite fonts, ToUnicode CMaps, segmented content streams, inline images; hard budgets against decompression bombs. No OCR: scanned PDFs return a clear error. |
+| PDF | `convert/pdf` | Text extraction via [github.com/giraffesyo/pdf](https://github.com/giraffesyo/pdf): Form XObjects (Google Docs exports), Identity-H composite fonts, ToUnicode CMaps, segmented content streams, inline images; hard budgets against decompression bombs. No bundled OCR engine, but scanned pages can be routed to one you supply (`pdf.Options.OCR`); without it they return a clear error. |
 | DOC | `convert/doc` | Word 97–2003 binary documents: bounded Compound Binary parsing, CLX piece-table reconstruction, ANSI/UTF-16 text, and displayed field results. Main-document text only; legacy formatting is not preserved. |
 | DOCX | `convert/docx` | Headings, bold/italic/strikethrough, sub/superscript, nested lists, tables (incl. gridSpan/vMerge), hyperlinks, image placeholders, tracked changes. Equations degrade to plain text. |
 | XLSX | `convert/xlsx` | Every sheet as `## SheetName` + a Markdown table. |
@@ -55,8 +55,8 @@ import (
     "github.com/giraffesyo/downmark/convert/pdf"
 )
 
-e := downmark.New() // core engine (plain-text passthrough builtin)
-pdf.Register(e)     // link only the PDF stack
+e := downmark.New()              // core engine (plain-text passthrough builtin)
+pdf.Register(e, pdf.Options{})   // link only the PDF stack
 
 res, err := e.ConvertFile(ctx, "report.pdf")
 // res.Markdown, res.Title
@@ -126,6 +126,40 @@ Errors: `errors.Is(err, downmark.ErrUnsupportedFormat)` when nothing
 matched; `*downmark.ConversionError` (with per-converter attempts) when
 converters matched but failed.
 
+## Warnings
+
+A conversion can succeed and still lose something — a PDF page that would
+not decode, an archive member in a format nothing converts. `Result.Warnings`
+reports what was lost, and is empty when nothing was:
+
+```go
+for _, w := range res.Warnings {
+	fmt.Printf("%s: %s\n", w.Code, w) // "incomplete: pdf: page 12: ..."
+}
+```
+
+`Code` is deliberately coarse — `WarningIncomplete` (content the input held
+is missing from the output) and `WarningSkipped` (a whole unit was never
+attempted) — because it is the part every format can answer. For detail,
+unwrap to the source library's own error:
+
+```go
+var pw gpdf.Warning
+if errors.As(w.Err, &pw) && pw.Code == gpdf.WarningOCR {
+	// this page's text is missing because OCR failed on it
+}
+```
+
+Warnings describe what varies per input. Limitations every file of a format
+shares — DOCX flattening nested tables, DOC dropping headers — are in
+[Limitations](#limitations) instead, so that anything in `Warnings` is
+something that happened to *this* document. The list is bounded at
+`MaxWarnings` (256); at the bound the final entry says so rather than being
+one more warning.
+
+The `downmark` CLI prints warnings to stderr, leaving stdout to the
+Markdown; `-q` suppresses them.
+
 ## PDF extraction
 
 PDF text extraction lives in its own module,
@@ -133,10 +167,49 @@ PDF text extraction lives in its own module,
 without the converter framework — positioned glyphs, line/word
 reconstruction, and hardening against malformed and hostile files.
 
+### OCR for scanned PDFs
+
+downmark ships no OCR engine and takes on no such dependency. It exposes
+the seam instead: give the PDF converter an implementation and pages the
+content streams cannot read are handed to it.
+
+```go
+import (
+	gpdf "github.com/giraffesyo/pdf"
+	"github.com/giraffesyo/downmark/convert/pdf"
+)
+
+pdf.Register(e, pdf.Options{
+	OCR: gpdf.OCRFunc(func(ctx context.Context, req gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+		// req.Page.Images carries the page's images with their encoded
+		// data and placement; req.Reader and req.Size are the original
+		// PDF, for implementations that render the page instead.
+		return myEngine.Read(ctx, req)
+	}),
+})
+```
+
+The glyphs you return are positioned in unrotated page space (`Image.ToPage`
+maps an engine's image coordinates there) and join the page's own text
+before layout, so OCR'd pages flow into the Markdown like any other.
+
+By default only textless pages are offered — scanned pages, and pages whose
+text was converted to vector outlines. Set `OCRPolicy: gpdf.OCRImagePages`
+for documents that mix typeset text with scanned figures or stamps, or
+`gpdf.OCRAllPages` for every page. Pages are OCR'd concurrently, so the
+implementation must be safe for concurrent use.
+
+An engine that returns an error leaves that page textless rather than
+failing the whole conversion; glyphs returned alongside an error are kept,
+and the failure comes back in [`Result.Warnings`](#warnings) as a
+`gpdf.Warning` with code `WarningOCR`.
+
 ## Limitations
 
-- **No OCR.** Scanned/image-only PDFs and text-converted-to-outlines fail
-  with "no extractable text" rather than silently emitting nothing.
+- **No bundled OCR engine.** Scanned/image-only PDFs and
+  text-converted-to-outlines fail with "no extractable text" rather than
+  silently emitting nothing, unless you supply an OCR implementation — see
+  [OCR for scanned PDFs](#ocr-for-scanned-pdfs).
 - DOC: Word 97–2003 main-document text is extracted, but formatting, tables,
   images, headers/footers, footnotes, comments, and text boxes are not
   reconstructed. Word 6/95 files are not supported.
@@ -149,8 +222,8 @@ reconstruction, and hardening against malformed and hostile files.
 - OOXML archives (DOCX/XLSX/PPTX) are capped at 64 MiB compressed, 128 MiB
   total uncompressed, 16 MiB per decompressed part, and 1,024 entries; XML
   structure is also bounded to prevent small parts from creating huge trees.
-- ZIP archives nested inside ZIP archives are skipped; archive conversion does
-  not recurse.
+- ZIP archives nested inside ZIP archives are skipped (reported in
+  `Result.Warnings`); archive conversion does not recurse.
 - Non-seekable inputs (stdin, network streams) are buffered in memory. Matching
   ZIP and Office inputs are rejected while buffering at their 64 MiB hard
   limit; formats without an input-limit converter remain fully buffered.

@@ -20,7 +20,7 @@
 // # Picking formats
 //
 //	e := downmark.New()          // engine with plain-text passthrough only
-//	pdf.Register(e)              // + PDF
+//	pdf.Register(e, pdf.Options{})   // + PDF
 //	docx.Register(e, docx.Options{}) // + DOCX
 //
 //	res, err := e.ConvertFile(ctx, "report.pdf")
@@ -33,6 +33,16 @@
 //	res, err := e.Convert(ctx, resp.Body, downmark.StreamInfo{
 //		MIMEType: resp.Header.Get("Content-Type"),
 //	})
+//
+// # Warnings
+//
+// A conversion can succeed and still lose something. Result.Warnings
+// reports what, and is empty when nothing was lost. Code is coarse by
+// design — WarningIncomplete and WarningSkipped — while Warning.Err keeps
+// the source library's own error, so errors.As recovers a pdf.Warning
+// with its page number and finer-grained code. Warnings report what
+// varies per input; a limitation every file of a format shares is
+// documented rather than warned about.
 //
 // Derive the context with WithResultLimit to reject oversized Markdown before
 // the engine performs final normalization. Converters can inspect ResultLimit

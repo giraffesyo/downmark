@@ -10,7 +10,16 @@ export interface DownmarkWasmApi {
   convert(
     data: Uint8Array,
     opts: Record<string, unknown>,
-  ): Promise<{ markdown: string; title: string }>;
+  ): Promise<{
+    markdown: string;
+    title: string;
+    warnings: {
+      converter: string;
+      code: "incomplete" | "skipped";
+      location: string;
+      message: string;
+    }[];
+  }>;
   canConvert(opts: Record<string, unknown>): boolean;
   version: string;
 }
