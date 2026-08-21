@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/giraffesyo/downmark/compare/v0.7.0...v0.8.0) (2026-08-21)
+
+
+### Features
+
+* OCR engines the CLI can drive, and budgets for what they cost ([#34](https://github.com/giraffesyo/downmark/issues/34)) ([e476b0d](https://github.com/giraffesyo/downmark/commit/e476b0d9f636396d2b911ac2f7a01bf5a1277e0a))
+
 ## [0.7.0](https://github.com/giraffesyo/downmark/compare/v0.6.1...v0.7.0) (2026-08-21)
 
 
