@@ -20,6 +20,10 @@ var goldenFiles = []string{
 	"test.xlsx",
 	"test.zip",
 	"synthetic.pdf",
+	// A real generator's PDF, with four embedded Type1 fonts: the
+	// synthetic fixture above exercises Form XObjects and ToUnicode, but
+	// nothing here pinned what a document from the wild converts to.
+	"test.pdf",
 }
 
 func TestGolden(t *testing.T) {
