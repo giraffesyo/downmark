@@ -6,7 +6,9 @@
 //	downmark [flags] [file]
 //
 // Reads file, or stdin if file is omitted or "-", and writes Markdown to
-// stdout (or to -o file).
+// stdout (or to -o file). With -json it writes one JSON object carrying the
+// Markdown, the title, and the warnings instead, which is the form the
+// @giraffesyo/downmark npm package drives the binary through.
 //
 // Scanned PDF pages hold no text to extract. Pass -ocr tesseract (or
 // -ocr-cmd, for another engine) to read them with an OCR engine; pages
@@ -48,6 +50,8 @@ func run() int {
 	mimeHint := flag.String("m", "", "MIME type hint, e.g. `application/pdf`")
 	charsetHint := flag.String("c", "", "charset hint, e.g. `shift_jis`")
 	keepDataURIs := flag.Bool("keep-data-uris", false, "keep full data: URIs in output instead of truncating")
+	asJSON := flag.Bool("json", false, "write one JSON object {markdown, title, warnings} instead of Markdown")
+	resultLimit := flag.Int("result-limit", 0, "reject results larger than `bytes` (0 for no limit)")
 	quiet := flag.Bool("q", false, "suppress the warnings reporting what the conversion lost")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	ocrOpts := registerOCRFlags()
@@ -80,6 +84,11 @@ func run() int {
 		hints.MIMEType = m
 	}
 
+	if *resultLimit < 0 {
+		fmt.Fprintln(os.Stderr, "downmark: -result-limit cannot be negative")
+		return 2
+	}
+
 	pdfOpts, err := ocrOpts.pdfOptions()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "downmark: %v\n", err)
@@ -89,6 +98,9 @@ func run() int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	if *resultLimit > 0 {
+		ctx = downmark.WithResultLimit(ctx, *resultLimit)
+	}
 
 	var res *downmark.Result
 	if path := flag.Arg(0); path == "" || path == "-" {
@@ -110,22 +122,36 @@ func run() int {
 		res, err = engine.Convert(ctx, f, info)
 	}
 	if err != nil {
-		printConversionError(err)
+		if *asJSON {
+			writeJSONError(os.Stderr, err)
+		} else {
+			printConversionError(err)
+		}
 		return 1
 	}
 
-	if !*quiet {
+	out := res.Markdown
+	if *asJSON {
+		// The warnings ride inside the object, so -q is already satisfied:
+		// nothing reaches stderr on a successful -json run either way.
+		b, err := encodeJSON(newJSONResult(res))
+		if err != nil {
+			writeJSONError(os.Stderr, fmt.Errorf("downmark: encoding the result: %w", err))
+			return 1
+		}
+		out = string(b)
+	} else if !*quiet {
 		printWarnings(res.Warnings)
 	}
 
 	if *outPath != "" {
-		if err := writeOutput(*outPath, res.Markdown); err != nil {
+		if err := writeOutput(*outPath, out); err != nil {
 			fmt.Fprintf(os.Stderr, "downmark: %v\n", err)
 			return 1
 		}
 		return 0
 	}
-	if _, err := os.Stdout.WriteString(res.Markdown); err != nil {
+	if _, err := os.Stdout.WriteString(out); err != nil {
 		fmt.Fprintf(os.Stderr, "downmark: %v\n", err)
 		return 1
 	}

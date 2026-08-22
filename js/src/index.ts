@@ -1,5 +1,7 @@
 import { initRuntime } from "./runtime.js";
 import { DownmarkError, rehydrateError } from "./errors.js";
+import { binaryPath as locateBinary, convertNative } from "#native";
+import type { ConvertHints, ConvertOptions, ConvertResult } from "./types.js";
 import type { WasmSourceInput } from "./wasm-source.js";
 
 export {
@@ -8,77 +10,105 @@ export {
   type ConversionAttempt,
   type DownmarkErrorCode,
 } from "./errors.js";
+export type {
+  ConvertHints,
+  ConvertOptions,
+  ConvertResult,
+  ConvertWarning,
+  OcrOptions,
+  WarningCode,
+} from "./types.js";
 export type { WasmSourceInput } from "./wasm-source.js";
 
-/** Hints about the input; every field is optional but the more the better. */
-export interface ConvertHints {
-  /** Base name of the source file, e.g. "report.docx". */
-  filename?: string;
-  /** Media type without parameters, e.g. "application/pdf". */
-  mimeType?: string;
-  /** File extension; normalized to lowercase with a leading dot. */
-  extension?: string;
-  /** IANA charset name for text inputs, e.g. "shift_jis". */
-  charset?: string;
-}
-
-/** Options for convert(). */
-export interface ConvertOptions extends ConvertHints {
+/** Options for init(). */
+export interface InitOptions {
+  /** Where downmark.wasm comes from; same as passing the source directly. */
+  wasm?: WasmSourceInput;
   /**
-   * Preserve full data: URIs in output (HTML) and embed images as data URIs
-   * (DOCX) instead of short placeholders.
+   * Ignore an installed native binary and run everything on the wasm, for
+   * comparing the two. The environment variable DOWNMARK_FORCE_WASM does
+   * the same without a code change.
    */
-  keepDataUris?: boolean;
-  /** Reject results larger than this many bytes with RESULT_TOO_LARGE. */
-  resultLimit?: number;
+  preferWasm?: boolean;
 }
 
-/** What a conversion classifies itself as having lost. */
-export type WarningCode = "incomplete" | "skipped";
-
-/**
- * A recoverable problem that left a conversion incomplete. Its presence
- * does not mean the conversion failed: the Markdown is usable, but it is
- * not everything the input held.
- */
-export interface ConvertWarning {
-  /** Converter that produced it, e.g. "pdf". */
-  converter: string;
-  /** What the output lost. */
-  code: WarningCode;
-  /** Affected part in the format's own terms ("page 12"), or "". */
-  location: string;
-  /** Human-readable rendering of the underlying failure. */
-  message: string;
-}
-
-/** The outcome of a successful conversion. */
-export interface ConvertResult {
-  /** Normalized Markdown output. */
-  markdown: string;
-  /** Document title if the format provides one, else "". */
-  title: string;
-  /** What the conversion lost; empty when it lost nothing. */
-  warnings: ConvertWarning[];
-}
+// Set by init({preferWasm}). Read on every convert() rather than captured,
+// so it takes effect whenever it is set.
+let forceWasm = false;
 
 /**
  * Load and start the wasm module. Optional: convert() and canConvert() call
  * it implicitly. Call it explicitly to override where downmark.wasm comes
- * from (e.g. a bundler asset URL). It must then run before the first
- * convert/canConvert.
+ * from (e.g. a bundler asset URL), or to force the wasm path. It must then
+ * run before the first convert/canConvert.
+ *
+ * This concerns the wasm implementation only. Where a platform package
+ * installed the native binary, convert() never touches the wasm and never
+ * needs this.
  */
-export async function init(source?: WasmSourceInput): Promise<void> {
-  await initRuntime(source);
+export async function init(
+  source?: WasmSourceInput | InitOptions,
+): Promise<void> {
+  const opts = asInitOptions(source);
+  if (opts) {
+    if (opts.preferWasm !== undefined) forceWasm = opts.preferWasm;
+    await initRuntime(opts.wasm);
+    return;
+  }
+  await initRuntime(source as WasmSourceInput | undefined);
 }
 
-/** Convert a document to Markdown. */
+/**
+ * Distinguish an options object from the wasm sources init() has always
+ * accepted. Every source is either a primitive-ish value or a known class,
+ * so a bare object carrying either option can only be the new form.
+ */
+function asInitOptions(
+  value: WasmSourceInput | InitOptions | undefined,
+): InitOptions | null {
+  if (value === null || typeof value !== "object") return null;
+  if (value instanceof URL) return null;
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return null;
+  if (typeof Response !== "undefined" && value instanceof Response) return null;
+  if (value instanceof WebAssembly.Module) return null;
+  return "wasm" in value || "preferWasm" in value ? (value as InitOptions) : null;
+}
+
+/**
+ * Path to the native binary this process would run, or null when none is
+ * installed and conversions fall back to the wasm. Exported for callers
+ * that would rather exec the CLI themselves.
+ */
+export function binaryPath(): string | null {
+  return forceWasm ? null : locateBinary();
+}
+
+/**
+ * Convert a document to Markdown.
+ *
+ * Where the per-platform package installed the native binary, this spawns
+ * it; otherwise it runs the same conversion on the wasm. The result is the
+ * same either way, except that `ocr` needs the binary.
+ */
 export async function convert(
   data: Uint8Array | ArrayBuffer,
   opts: ConvertOptions = {},
 ): Promise<ConvertResult> {
-  const api = await initRuntime();
+  validateOptions(opts);
   const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+
+  const bin = binaryPath();
+  if (bin) return convertNative(bin, u8, opts);
+
+  if (opts.ocr) {
+    throw new DownmarkError(
+      "downmark: ocr needs the native binary, and no @giraffesyo/downmark-" +
+        "<platform> package is installed for this host; install it, or drop " +
+        "the ocr option to convert without reading scanned pages",
+      "NATIVE_REQUIRED",
+    );
+  }
+  const api = await initRuntime();
   try {
     return await api.convert(u8, marshalOptions(opts));
   } catch (err) {
@@ -103,6 +133,66 @@ export async function version(): Promise<string> {
   return api.version;
 }
 
+/**
+ * Reject options that neither implementation would accept, before either
+ * one runs, so a mistake reads the same whichever path a host takes.
+ */
+function validateOptions(opts: ConvertOptions): void {
+  if (opts.resultLimit !== undefined) {
+    requirePositiveInt(opts.resultLimit, "resultLimit");
+  }
+  const ocr = opts.ocr;
+  if (!ocr) return;
+  if (ocr.engine !== "tesseract") {
+    throw new DownmarkError(
+      `downmark: unknown OCR engine ${String(ocr.engine)}; only "tesseract" is built in`,
+      "INTERNAL",
+    );
+  }
+  if (ocr.policy !== undefined && ocr.policy !== "textless" && ocr.policy !== "images") {
+    throw new DownmarkError(
+      `downmark: unknown OCR policy ${String(ocr.policy)}; use "textless" or "images"`,
+      "INTERNAL",
+    );
+  }
+  if (ocr.minConfidence !== undefined) {
+    if (
+      !Number.isFinite(ocr.minConfidence) ||
+      ocr.minConfidence < 0 ||
+      ocr.minConfidence > 100
+    ) {
+      throw new DownmarkError(
+        "downmark: ocr.minConfidence must be between 0 and 100",
+        "INTERNAL",
+      );
+    }
+  }
+  // Zero is meaningful for these three: it is how the binary spells "no
+  // limit", so they are bounded below rather than required positive.
+  for (const [name, value] of [
+    ["maxPages", ocr.maxPages],
+    ["pageTimeoutMs", ocr.pageTimeoutMs],
+    ["timeoutMs", ocr.timeoutMs],
+  ] as const) {
+    if (value === undefined) continue;
+    if (!Number.isInteger(value) || value < 0) {
+      throw new DownmarkError(
+        `downmark: ocr.${name} must be a non-negative integer`,
+        "INTERNAL",
+      );
+    }
+  }
+}
+
+function requirePositiveInt(value: number, name: string): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new DownmarkError(
+      `downmark: ${name} must be a positive integer`,
+      "INTERNAL",
+    );
+  }
+}
+
 function marshalOptions(opts: ConvertOptions): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (opts.filename) out.filename = opts.filename;
@@ -114,14 +204,6 @@ function marshalOptions(opts: ConvertOptions): Record<string, unknown> {
   }
   if (opts.charset) out.charset = opts.charset;
   if (opts.keepDataUris) out.keepDataUris = true;
-  if (opts.resultLimit !== undefined) {
-    if (!Number.isInteger(opts.resultLimit) || opts.resultLimit <= 0) {
-      throw new DownmarkError(
-        "downmark: resultLimit must be a positive integer",
-        "INTERNAL",
-      );
-    }
-    out.resultLimit = opts.resultLimit;
-  }
+  if (opts.resultLimit !== undefined) out.resultLimit = opts.resultLimit;
   return out;
 }

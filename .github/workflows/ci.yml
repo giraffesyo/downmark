@@ -56,6 +56,29 @@ jobs:
       - name: wasm_exec.js drift check
         run: git diff --exit-code js/vendor
 
+  # The npm package ships the native binary in six per-platform packages
+  # built from goreleaser's output. Assembling them here means a break in
+  # that path shows up on the pull request, not on the release that was
+  # going to publish them.
+  npm-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: stable
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      - name: build every release binary
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          version: '~> v2'
+          args: build --snapshot --clean
+      - name: stage and check the per-platform npm packages
+        run: .github/scripts/check-npm-packages.sh
+
   lint:
     runs-on: ubuntu-latest
     steps:

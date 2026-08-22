@@ -5,7 +5,7 @@
 // rewriting relative specifiers to the .cjs extension.
 import { readFile, writeFile } from "node:fs/promises";
 
-const MODULES = ["index", "errors", "wasm-source"];
+const MODULES = ["index", "errors", "types", "wasm-source"];
 
 for (const name of MODULES) {
   const src = await readFile(`dist/${name}.d.ts`, "utf8");

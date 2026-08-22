@@ -7,7 +7,7 @@ GOROOT_DIR := $(shell go env GOROOT)
 # i64.extend32_s without --enable-sign-ext.
 WASM_OPT_FEATURES := --enable-sign-ext --enable-bulk-memory --enable-nontrapping-float-to-int
 
-.PHONY: wasm-exec wasm js js-test js-test-browser
+.PHONY: wasm-exec wasm js js-bin js-test js-test-browser
 
 # Copy the Go runtime's JS support shim into the npm package's vendor dir.
 # Go 1.24+ ships it under lib/wasm (previously misc/wasm).
@@ -29,7 +29,15 @@ wasm: wasm-exec
 js: wasm
 	cd js && npm ci && npm run build:ts
 
-js-test: js
+# The npm package's native path spawns this binary. It is built into
+# js/.bin rather than js/dist so that it cannot end up in the published
+# tarball: the released binaries ship in the per-platform packages, which
+# scripts/stage-npm-release.mjs builds from goreleaser's output.
+js-bin:
+	mkdir -p js/.bin
+	go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o js/.bin/downmark ./cmd/downmark
+
+js-test: js js-bin
 	cd js && npm test
 
 # Separate from js-test because it needs a browser binary:

@@ -16,6 +16,7 @@ import (
 
 	"github.com/giraffesyo/downmark"
 	"github.com/giraffesyo/downmark/all"
+	"github.com/giraffesyo/downmark/internal/errcode"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=...".
@@ -101,29 +102,22 @@ func warningValues(ws []downmark.Warning) []any {
 }
 
 func errorObject(err error) js.Value {
-	code := "INTERNAL"
-	obj := map[string]any{"name": "DownmarkError"}
-	var convErr *downmark.ConversionError
-	switch {
-	case errors.Is(err, downmark.ErrUnsupportedFormat):
-		code = "UNSUPPORTED_FORMAT"
-	case errors.Is(err, downmark.ErrInputTooLarge):
-		code = "INPUT_TOO_LARGE"
-	case errors.Is(err, downmark.ErrResultTooLarge):
-		code = "RESULT_TOO_LARGE"
-	case errors.As(err, &convErr):
-		code = "CONVERSION_FAILED"
-		attempts := make([]any, len(convErr.Attempts))
-		for i, a := range convErr.Attempts {
-			attempts[i] = map[string]any{
-				"converter": a.Converter,
-				"message":   a.Err.Error(),
-			}
-		}
-		obj["attempts"] = attempts
+	// Classification lives in internal/errcode so that this and the CLI's
+	// -json mode report the same code for the same failure; the wrapper
+	// rehydrates either one into the same typed error.
+	code, attempts := errcode.Of(err)
+	obj := map[string]any{
+		"name":    "DownmarkError",
+		"code":    code,
+		"message": err.Error(),
 	}
-	obj["code"] = code
-	obj["message"] = err.Error()
+	if attempts != nil {
+		vals := make([]any, len(attempts))
+		for i, a := range attempts {
+			vals[i] = map[string]any{"converter": a.Converter, "message": a.Message}
+		}
+		obj["attempts"] = vals
+	}
 	return js.ValueOf(obj)
 }
 

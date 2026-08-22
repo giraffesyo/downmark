@@ -56,11 +56,11 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build:ts": "npm run build:esm && npm run build:cjs && npm run build:browser && npm run build:types",
-    "build:esm": "esbuild src/index.ts --bundle --format=esm --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.ts --outfile=dist/index.js",
-    "build:cjs": "esbuild src/index.ts --bundle --format=cjs --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.cjs.ts --outfile=dist/index.cjs",
-    "build:browser": "esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --alias:#wasm-loader=./src/loader.browser.ts --outfile=dist/index.browser.js",
+    "build:esm": "esbuild src/index.ts --bundle --format=esm --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.ts --alias:#native=./src/native.node.ts --outfile=dist/index.js",
+    "build:cjs": "esbuild src/index.ts --bundle --format=cjs --platform=node --target=node18 --alias:#wasm-loader=./src/loader.node.cjs.ts --alias:#native=./src/native.node.cjs.ts --outfile=dist/index.cjs",
+    "build:browser": "esbuild src/index.ts --bundle --format=esm --platform=browser --target=es2022 --alias:#wasm-loader=./src/loader.browser.ts --alias:#native=./src/native.browser.ts --outfile=dist/index.browser.js",
     "build:types": "tsc -p tsconfig.json && node scripts/emit-cts.mjs",
-    "test": "node --test \"test/*.test.cjs\" \"test/convert.test.mjs\"",
+    "test": "node --test \"test/*.test.cjs\" \"test/convert.test.mjs\" \"test/native.test.mjs\"",
     "test:browser": "node --test test/browser.test.mjs"
   },
   "devDependencies": {

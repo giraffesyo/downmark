@@ -1,0 +1,11 @@
+{
+  "comment": "The per-platform binary packages @giraffesyo/downmark declares as optionalDependencies. Single source of truth: the wrapper resolves through it at run time, and scripts/stage-npm-release.mjs builds the packages from it at release time. Go binaries are static, so one linux entry covers glibc and musl alike.",
+  "packages": [
+    { "npm": "@giraffesyo/downmark-linux-x64", "os": "linux", "cpu": "x64", "goos": "linux", "goarch": "amd64" },
+    { "npm": "@giraffesyo/downmark-linux-arm64", "os": "linux", "cpu": "arm64", "goos": "linux", "goarch": "arm64" },
+    { "npm": "@giraffesyo/downmark-darwin-x64", "os": "darwin", "cpu": "x64", "goos": "darwin", "goarch": "amd64" },
+    { "npm": "@giraffesyo/downmark-darwin-arm64", "os": "darwin", "cpu": "arm64", "goos": "darwin", "goarch": "arm64" },
+    { "npm": "@giraffesyo/downmark-win32-x64", "os": "win32", "cpu": "x64", "goos": "windows", "goarch": "amd64" },
+    { "npm": "@giraffesyo/downmark-win32-arm64", "os": "win32", "cpu": "arm64", "goos": "windows", "goarch": "arm64" }
+  ]
+}
