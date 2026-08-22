@@ -39,6 +39,8 @@ usage: downmark [flags] [file]      # stdin if file omitted or "-"; Markdown →
   -m type           MIME type hint
   -c charset        charset hint, e.g. shift_jis
   -keep-data-uris   keep full data: URIs
+  -json             write {markdown, title, warnings} as JSON instead
+  -result-limit n   reject results larger than n bytes
   -q                suppress warnings
   -version          print version
 
@@ -55,6 +57,24 @@ See [OCR for scanned PDFs](#ocr-for-scanned-pdfs) for what the `-ocr` flags
 do and what they cost.
 
 Exit codes: `0` success, `1` conversion failed, `2` usage error.
+
+`-json` is the machine-readable mode, and what the npm package drives the
+binary through. Markdown, title, and warnings arrive as one object on
+stdout, and a failed conversion writes `{"error":{"code",...}}` on stderr
+instead, so a caller never has to read prose to find out what happened:
+
+```console
+$ downmark -json report.pdf | jq '{title, warnings: (.warnings|length)}'
+{
+  "title": "",
+  "warnings": 2
+}
+$ downmark -json broken.bin
+{"error":{"code":"UNSUPPORTED_FORMAT","message":"downmark: unsupported format"}}
+```
+
+The codes are `UNSUPPORTED_FORMAT`, `INPUT_TOO_LARGE`, `RESULT_TOO_LARGE`,
+`CONVERSION_FAILED` (which carries an `attempts` array), and `INTERNAL`.
 
 ## Library
 
@@ -89,15 +109,22 @@ PDF-only consumer ≈ 4.9 MB, CSV-only ≈ 4.5 MB, everything ≈ 7.5 MB.
 ## Node.js and browsers
 
 downmark also ships as an npm package,
-[`@giraffesyo/downmark`](https://www.npmjs.com/package/@giraffesyo/downmark):
-the full library compiled to WebAssembly with a TypeScript API for Node ≥ 18
-and browsers. See [js/README.md](js/README.md).
+[`@giraffesyo/downmark`](https://www.npmjs.com/package/@giraffesyo/downmark),
+with a TypeScript API for Node ≥ 18 and browsers. See
+[js/README.md](js/README.md).
 
 ```js
 import { convert } from "@giraffesyo/downmark";
 
 const { markdown, title } = await convert(data, { filename: "report.docx" });
 ```
+
+It carries two implementations of that one call. The native binary ships in
+per-platform packages the wrapper declares as `optionalDependencies`, so
+`npm install` picks up the one that matches the host — no download step, no
+postinstall, and the lockfile pins the exact binary. Where none applies
+(a browser, an unlisted platform), the same conversion runs on the bundled
+WebAssembly build instead, more slowly and without OCR.
 
 ## MarkItDown comparison
 

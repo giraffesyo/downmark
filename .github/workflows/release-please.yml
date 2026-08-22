@@ -42,6 +42,11 @@ jobs:
         with:
           version: '~> v2'
           args: build --snapshot --clean
+      # The per-platform npm packages are assembled from the binaries above.
+      # Staging them here means a matrix or layout change breaks the build
+      # rather than the publish, where six packages are already halfway out.
+      - name: stage the per-platform npm packages
+        run: .github/scripts/check-npm-packages.sh
 
   # Maintains the release PR on ordinary pushes; on the merge of that PR it
   # bumps the version, writes the changelog, tags, and creates the release.
@@ -116,12 +121,31 @@ jobs:
 
       - name: build the npm package
         run: make js VERSION="${TAG#v}"
-      # release-please already committed this version; --allow-same-version
-      # keeps npm from failing on what is normally a no-op bump.
-      - name: sync package version to the tag
-        run: cd js && npm version --no-git-tag-version --allow-same-version "${TAG#v}"
-      # No NODE_AUTH_TOKEN: auth comes from the OIDC id-token, and npm
-      # generates provenance automatically for trusted publishes.
+      # Writes js/npm/<platform> from the binaries goreleaser just built, and
+      # stamps the version and the six optionalDependencies into
+      # js/package.json. It runs after `make js` because that does an npm ci,
+      # which would reject a manifest naming versions nobody has published
+      # yet. Nothing it writes is committed.
+      - name: stage the per-platform npm packages
+        run: node js/scripts/stage-npm-release.mjs --version "${TAG#v}"
+      # The platform packages go first: the wrapper's optionalDependencies
+      # name this exact version, so they have to exist by the time anyone can
+      # install it.
+      #
+      # No NODE_AUTH_TOKEN anywhere below: auth comes from the OIDC
+      # id-token, and npm generates provenance automatically for trusted
+      # publishes. Every one of these seven packages needs a trusted
+      # publisher configured on npmjs.com pointing at this workflow -- a
+      # package that has never been published has nowhere to configure one,
+      # so each new platform package has to be created once by hand before
+      # its first release here.
+      - name: publish the platform packages to npm
+        run: |
+          set -euo pipefail
+          for dir in js/npm/*/; do
+            echo "publishing $dir"
+            (cd "$dir" && npm publish --access public)
+          done
       - name: publish to npm
         run: cd js && npm publish --access public
       - name: attach npm artifacts to the GitHub release

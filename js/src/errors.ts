@@ -4,6 +4,11 @@ export type DownmarkErrorCode =
   | "INPUT_TOO_LARGE"
   | "RESULT_TOO_LARGE"
   | "CONVERSION_FAILED"
+  /**
+   * The call needs the native binary and this host has none installed: OCR
+   * on the wasm fallback, or any convert() in a browser with `ocr` set.
+   */
+  | "NATIVE_REQUIRED"
   | "INTERNAL";
 
 /** Base error for every failure reported by downmark. */
@@ -45,6 +50,9 @@ interface WireError {
   attempts?: unknown;
 }
 
+// The vocabulary Go reports, shared by the wasm module and the binary's
+// -json mode. NATIVE_REQUIRED is deliberately absent: it is decided on
+// this side of the boundary, so it can never arrive over one.
 const KNOWN_CODES: ReadonlySet<string> = new Set([
   "UNSUPPORTED_FORMAT",
   "INPUT_TOO_LARGE",
@@ -54,8 +62,10 @@ const KNOWN_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Rehydrate a rejection value from the wasm side ({name, code, message,
- * attempts?}) into a typed error class. Unknown shapes become INTERNAL.
+ * Rehydrate a structured failure from Go ({code, message, attempts?}) into
+ * a typed error class. Both implementations report in this shape — the
+ * wasm module as a rejection value, the binary as JSON on stderr. Unknown
+ * shapes become INTERNAL.
  */
 export function rehydrateError(value: unknown): DownmarkError {
   if (value instanceof DownmarkError) return value;
