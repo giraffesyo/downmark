@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/giraffesyo/downmark/compare/v0.9.0...v0.10.0) (2026-08-24)
+
+
+### Features
+
+* an OCR policy for the scan under a typed header ([#41](https://github.com/giraffesyo/downmark/issues/41)) ([305c1e9](https://github.com/giraffesyo/downmark/commit/305c1e9b0983b910201513031c47973ffedf2223))
+
 ## [0.9.0](https://github.com/giraffesyo/downmark/compare/v0.8.0...v0.9.0) (2026-08-22)
 
 
