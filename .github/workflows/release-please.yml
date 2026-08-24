@@ -132,6 +132,13 @@ jobs:
       # name this exact version, so they have to exist by the time anyone can
       # install it.
       #
+      # Both steps go through npm-publish.sh, which skips a version the
+      # registry already has. Seven packages publish one at a time, so a job
+      # that dies among them leaves a partial release that only a re-run can
+      # finish -- and a plain `npm publish` of an already-published version
+      # is an error, which would make that re-run fail on the packages that
+      # did make it out.
+      #
       # No NODE_AUTH_TOKEN anywhere below: auth comes from the OIDC
       # id-token, and npm generates provenance automatically for trusted
       # publishes. Every one of these seven packages needs a trusted
@@ -143,11 +150,10 @@ jobs:
         run: |
           set -euo pipefail
           for dir in js/npm/*/; do
-            echo "publishing $dir"
-            (cd "$dir" && npm publish --access public)
+            .github/scripts/npm-publish.sh "$dir"
           done
       - name: publish to npm
-        run: cd js && npm publish --access public
+        run: .github/scripts/npm-publish.sh js
       - name: attach npm artifacts to the GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

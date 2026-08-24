@@ -22,6 +22,15 @@ release:
   # changelog, so goreleaser must only add artifacts to it. keep-existing is
   # already the default; it is spelled out because the notes now depend on it.
   mode: keep-existing
+  # Makes a re-run of a half-finished release job work. Uploading an asset
+  # that is already on the release is a 422, which fails the whole step --
+  # so the first attempt's binaries are exactly what blocks the second
+  # attempt from getting past them. With this set, goreleaser deletes the
+  # existing asset on the 422 and retries the upload.
+  #
+  # `mode` above is only about the release notes, so this does not put them
+  # at risk.
+  replace_existing_artifacts: true
 
 checksum:
   name_template: checksums.txt
