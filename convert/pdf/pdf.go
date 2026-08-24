@@ -35,8 +35,30 @@ type Options struct {
 	// gpdf.OCRTextlessPages, asks only about pages that produced no text
 	// of their own; gpdf.OCRImagePages also covers pages that mix
 	// typeset text with scanned figures or stamps. Ignored when OCR is
-	// nil.
+	// nil, and when OCRMinGlyphs replaces it.
 	OCRPolicy gpdf.OCRPolicy
+
+	// OCRMinGlyphs replaces OCRPolicy with a floor on glyphs per page:
+	// pages whose content streams produced fewer than this many glyphs
+	// are handed to OCR, textless pages included.
+	//
+	// It is there for the page neither policy serves — a fax or a signed
+	// form whose typed header (a date stamp, a routing line, a page
+	// number) came through the content streams while the body is an
+	// image. Such a page has glyphs, so gpdf.OCRTextlessPages passes it
+	// by and the document extracts as its header; gpdf.OCRImagePages
+	// catches it, and also reads every figure in a born-digital paper,
+	// at roughly a second a page.
+	//
+	// A page that produced glyphs is handed over only when it paints an
+	// image, since a thin page painting none has had its text converted
+	// to vector outlines — which needs a renderer rather than an OCR
+	// engine — or is close to blank. Textless pages go over either way,
+	// so this selects everything gpdf.OCRTextlessPages would and never
+	// reads fewer pages than the default.
+	//
+	// Zero and below leave OCRPolicy in charge. Ignored when OCR is nil.
+	OCRMinGlyphs int
 }
 
 // New returns the PDF converter.
@@ -55,6 +77,22 @@ func (converter) Name() string { return "pdf" }
 
 func (converter) Accepts(info downmark.StreamInfo) bool {
 	return info.Matches([]string{".pdf"}, []string{"application/pdf", "application/x-pdf"})
+}
+
+// thinPages is Options.OCRMinGlyphs as the extractor wants it: a
+// predicate over the page the content streams produced, whose Glyphs and
+// ImageCount are set before any image data is read. It is called from
+// the extractor's page workers, so it must stay free of state.
+func thinPages(floor int) func(gpdf.Page) bool {
+	return func(page gpdf.Page) bool {
+		if len(page.Glyphs) == 0 {
+			// What gpdf.OCRTextlessPages selects, images or not: an
+			// engine that renders pages can read outlines, and one that
+			// does not returns nothing for a page it cannot see.
+			return true
+		}
+		return len(page.Glyphs) < floor && page.ImageCount > 0
+	}
 }
 
 var errNoText = errors.New("no extractable text; the PDF may be scanned images or use unsupported fonts")
@@ -93,7 +131,11 @@ func (c converter) Convert(ctx context.Context, input io.ReadSeeker, _ downmark.
 	var extract gpdf.Options
 	if c.opts.OCR != nil {
 		extract.OCR = c.opts.OCR
-		extract.OCRPolicy = c.opts.OCRPolicy
+		if c.opts.OCRMinGlyphs > 0 {
+			extract.OCRSelect = thinPages(c.opts.OCRMinGlyphs)
+		} else {
+			extract.OCRPolicy = c.opts.OCRPolicy
+		}
 	}
 	doc, err := gpdf.ExtractWithOptions(ctx, ra, size, extract)
 	if err != nil {

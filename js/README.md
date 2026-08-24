@@ -147,10 +147,19 @@ const { markdown } = await convert(data, {
 | `bin`           | `string`                    | Run this executable instead of the one on `PATH`              |
 | `lang`          | `string`                    | Language in tesseract's syntax, e.g. `"eng"` or `"eng+deu"`   |
 | `minConfidence` | `number`                    | Drop words below this, on tesseract's 0–100 scale             |
-| `policy`        | `"textless"` \| `"images"`  | Pages with no text of their own (default), or also scanned figures on pages that have text |
+| `policy`        | `"textless"` \| `"thin"` \| `"images"` | Pages with no text of their own (default), also a scan under a typed header, or every page painting an image |
+| `minGlyphs`     | `number`                    | With `policy: "thin"`, the glyphs a page needs to count as typeset; `50` by default |
 | `maxPages`      | `number`                    | OCR at most this many pages per document; `0` for no limit    |
 | `pageTimeoutMs` | `number`                    | Give up on one page after this long                           |
 | `timeoutMs`     | `number`                    | Give up on the whole document's OCR after this long           |
+
+A page can be a scan without being textless: a fax or a signed form
+carries a typed header — a date stamp, a routing line, a page number —
+over an image of the body, and extracts as that header alone.
+`policy: "thin"` reads those as well, handing the engine any page with
+fewer than `minGlyphs` glyphs that paints an image, while leaving pages
+with a text layer of their own alone. `policy: "images"` reads every page
+painting an image, figures in typeset documents included.
 
 downmark ships no OCR engine: `engine: "tesseract"` runs a
 [tesseract](https://github.com/tesseract-ocr/tesseract) you installed

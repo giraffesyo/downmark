@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	gpdf "github.com/giraffesyo/pdf"
@@ -382,5 +383,108 @@ func TestScannedPageThatOCRReadIsNotReported(t *testing.T) {
 	}
 	if len(res.Warnings) != 0 {
 		t.Errorf("Warnings = %v, want none: the page was read", res.Warnings)
+	}
+}
+
+// faxPDF is the shape a glyph floor is for: page 1 is a scan under a
+// typed header, page 2 is typeset with a figure beside it, and page 3 is
+// thin but paints nothing an OCR engine could read.
+func faxPDF() []byte {
+	const resources = "<< /Font << /F1 10 0 R >> /XObject << /Im0 9 0 R >> >>"
+	const image = "q 200 0 0 100 72 400 cm /Im0 Do Q"
+	return pdftest.Build(1,
+		pdftest.Catalog(2),
+		pdftest.Pages(3, 4, 5),
+		pdftest.Page(2, 6, resources),
+		pdftest.Page(2, 7, resources),
+		pdftest.Page(2, 8, "<< /Font << /F1 10 0 R >> >>"),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (FAX 03/14/2019 p.1) Tj ET "+image),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (A typeset page with a text layer of its own, and a figure) Tj ET "+image),
+		pdftest.Stream("", "BT /F1 12 Tf 72 700 Td (Appendix) Tj ET"),
+		pdftest.Stream("/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray /BitsPerComponent 8", strings.Repeat("\x40", 4*4)),
+		pdftest.Helvetica(),
+	)
+}
+
+// The page the two named policies both miss: it has glyphs, so the
+// textless policy passes it by and the document extracts as its header,
+// and reading it with the images policy would mean reading every figure
+// in the rest of the document too.
+func TestOCRMinGlyphsReadsAScanUnderATypedHeader(t *testing.T) {
+	var pages []int
+	var mu sync.Mutex
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCRMinGlyphs: 50,
+		OCR: gpdf.OCRFunc(func(_ context.Context, req gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			mu.Lock()
+			pages = append(pages, req.PageNumber)
+			mu.Unlock()
+			return ocrLine("The body of the fax", 500), nil
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(faxPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	// Page 2 is typeset and page 3 paints nothing to read, so the floor
+	// has to leave both of them to their own text.
+	if len(pages) != 1 || pages[0] != 1 {
+		t.Errorf("OCR'd pages = %v, want only the page under the typed header", pages)
+	}
+	if !strings.Contains(res.Markdown, "FAX 03/14/2019") || !strings.Contains(res.Markdown, "The body of the fax") {
+		t.Errorf("Markdown = %q, want the typed header and the OCR'd body", res.Markdown)
+	}
+	if !strings.Contains(res.Markdown, "<!-- downmark: page 1 includes OCR text -->") {
+		t.Errorf("Markdown = %q, want the page marked as holding OCR text", res.Markdown)
+	}
+}
+
+// A floor selects everything the default policy would, so switching to
+// one never costs a page: the scans stay covered, whether or not they
+// paint an image an engine can read.
+func TestOCRMinGlyphsStillReadsTextlessPages(t *testing.T) {
+	var pages []int
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCRMinGlyphs: 50,
+		OCR: gpdf.OCRFunc(func(_ context.Context, req gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			pages = append(pages, req.PageNumber)
+			return ocrLine("Scanned page text", 700), nil
+		}),
+	})
+	res, err := e.Convert(t.Context(), bytes.NewReader(textlessPDF()), downmark.StreamInfo{Extension: ".pdf"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(pages) != 1 || pages[0] != 1 {
+		t.Errorf("OCR'd pages = %v, want the one textless page", pages)
+	}
+	if !strings.Contains(res.Markdown, "Scanned page text") {
+		t.Errorf("Markdown = %q, want the OCR'd text", res.Markdown)
+	}
+}
+
+// The floor replaces the policy rather than narrowing it, so a caller
+// that sets both gets the floor's pages, not the intersection.
+func TestOCRMinGlyphsReplacesThePolicy(t *testing.T) {
+	var pages []int
+	var mu sync.Mutex
+	e := downmark.New(downmark.WithoutBuiltins())
+	pdf.Register(e, pdf.Options{
+		OCRPolicy:    gpdf.OCRImagePages,
+		OCRMinGlyphs: 50,
+		OCR: gpdf.OCRFunc(func(_ context.Context, req gpdf.OCRRequest) ([]gpdf.Glyph, error) {
+			mu.Lock()
+			pages = append(pages, req.PageNumber)
+			mu.Unlock()
+			return nil, nil
+		}),
+	})
+	if _, err := e.Convert(t.Context(), bytes.NewReader(faxPDF()), downmark.StreamInfo{Extension: ".pdf"}); err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if len(pages) != 1 || pages[0] != 1 {
+		t.Errorf("OCR'd pages = %v, want the floor's page rather than every page painting an image", pages)
 	}
 }
