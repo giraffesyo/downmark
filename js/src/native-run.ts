@@ -29,6 +29,7 @@ export function buildArgs(opts: ConvertOptions): string[] {
       args.push("-ocr-min-confidence", String(ocr.minConfidence));
     }
     if (ocr.policy) args.push("-ocr-policy", ocr.policy);
+    if (ocr.minGlyphs !== undefined) args.push("-ocr-min-glyphs", String(ocr.minGlyphs));
     if (ocr.maxPages !== undefined) args.push("-ocr-max-pages", String(ocr.maxPages));
     // Go parses durations from a unit suffix; milliseconds is the unit a
     // JS caller already thinks in.

@@ -34,10 +34,16 @@ export interface OcrOptions {
   minConfidence?: number;
   /**
    * Which pages to read: "textless" (the default) for pages with no text of
-   * their own, or "images" to also read scanned figures on pages that have
-   * text.
+   * their own, "thin" to also read a scanned body under a typed header, or
+   * "images" for every page that paints one.
    */
-  policy?: "textless" | "images";
+  policy?: "textless" | "thin" | "images";
+  /**
+   * With policy "thin", the glyphs a page needs before it counts as typeset
+   * rather than scanned. Pages below it are handed to the engine, textless
+   * pages included; 50 when omitted.
+   */
+  minGlyphs?: number;
   /** OCR at most this many pages per document; omit for no limit. */
   maxPages?: number;
   /** Give up on one page's OCR after this many milliseconds. */

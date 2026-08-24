@@ -119,7 +119,8 @@ test("OCR options are accepted by the binary", { skip }, async () => {
       ocr: {
         engine: "tesseract",
         lang: "eng",
-        policy: "textless",
+        policy: "thin",
+        minGlyphs: 40,
         minConfidence: 60,
         maxPages: 2,
         pageTimeoutMs: 30_000,

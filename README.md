@@ -48,7 +48,8 @@ usage: downmark [flags] [file]      # stdin if file omitted or "-"; Markdown →
   -ocr-bin path     run this tesseract instead of the one on PATH
   -ocr-lang lang    OCR language, in tesseract's syntax, e.g. eng+deu
   -ocr-min-confidence f   drop OCR'd words below this, on tesseract's 0-100 scale
-  -ocr-policy p     textless (default) or images, to also read scanned figures
+  -ocr-policy p     textless (default), thin, or images: which pages to read
+  -ocr-min-glyphs n with -ocr-policy thin, OCR pages under n glyphs (default 50)
   -ocr-max-pages n  OCR at most n pages per document
   -ocr-page-timeout d, -ocr-timeout d   bound one page, and the whole document
 ```
@@ -224,8 +225,17 @@ Large language models (LLMs) are becoming a crucial building block...
 
 `-ocr-lang` picks the language, in tesseract's own syntax (`eng+deu`),
 `-ocr-bin` runs a tesseract from somewhere other than PATH, and
-`-ocr-min-confidence` drops words tesseract was unsure of. `-ocr-policy
-images` also reads scanned figures on pages that have text of their own.
+`-ocr-min-confidence` drops words tesseract was unsure of.
+
+`-ocr-policy` says which pages are worth reading. By default it is the
+pages that produced no text at all. A fax or a signed form is not one of
+them: its typed header — a date stamp, a routing line, a page number —
+comes through the content streams while the body stays an image, so the
+document extracts as its header. `-ocr-policy thin` reads those too,
+handing over any page with fewer than `-ocr-min-glyphs` glyphs (50 by
+default) that paints an image, textless pages included. `-ocr-policy
+images` is the blunt version: every page painting an image, which on a
+born-digital paper means every figure, at roughly a second each.
 
 OCR costs roughly a second a page and nothing else in a conversion does,
 so `-ocr-max-pages`, `-ocr-page-timeout` (two minutes by default) and
@@ -286,8 +296,12 @@ before layout, so OCR'd pages flow into the Markdown like any other.
 By default only textless pages are offered — scanned pages, and pages whose
 text was converted to vector outlines. Set `OCRPolicy: gpdf.OCRImagePages`
 for documents that mix typeset text with scanned figures or stamps, or
-`gpdf.OCRAllPages` for every page. Pages are OCR'd concurrently, so the
-implementation must be safe for concurrent use.
+`gpdf.OCRAllPages` for every page. `OCRMinGlyphs: 50` replaces the policy
+with a floor on glyphs per page, which is what a scan under a typed header
+needs: any page below the floor that paints an image is offered, textless
+pages included, and pages with a text layer of their own are left alone.
+Pages are OCR'd concurrently, so the implementation must be safe for
+concurrent use.
 
 An engine that returns an error leaves that page textless rather than
 failing the whole conversion; glyphs returned alongside an error are kept,

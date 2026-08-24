@@ -97,6 +97,23 @@ test("version reports a string", async () => {
   assert.ok(v.length > 0);
 });
 
+// The floor is the thin policy; passing one under another policy asks
+// for pages that would never be read, so it is refused here rather than
+// dropped by the binary.
+test("rejects ocr.minGlyphs without the thin policy", async () => {
+  await assert.rejects(
+    convert(new Uint8Array(0), {
+      ocr: { engine: "tesseract", policy: "images", minGlyphs: 40 },
+    }),
+    (err) => {
+      assert.ok(err instanceof DownmarkError);
+      assert.equal(err.code, "INTERNAL");
+      assert.match(err.message, /minGlyphs/);
+      return true;
+    },
+  );
+});
+
 test("rejects invalid resultLimit without touching the wasm", async () => {
   await assert.rejects(convert(new Uint8Array(0), { resultLimit: 0 }), (err) => {
     assert.ok(err instanceof DownmarkError);

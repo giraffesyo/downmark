@@ -149,11 +149,32 @@ function validateOptions(opts: ConvertOptions): void {
       "INTERNAL",
     );
   }
-  if (ocr.policy !== undefined && ocr.policy !== "textless" && ocr.policy !== "images") {
+  if (
+    ocr.policy !== undefined &&
+    ocr.policy !== "textless" &&
+    ocr.policy !== "thin" &&
+    ocr.policy !== "images"
+  ) {
     throw new DownmarkError(
-      `downmark: unknown OCR policy ${String(ocr.policy)}; use "textless" or "images"`,
+      `downmark: unknown OCR policy ${String(ocr.policy)}; use "textless", "thin" or "images"`,
       "INTERNAL",
     );
+  }
+  if (ocr.minGlyphs !== undefined) {
+    if (!Number.isInteger(ocr.minGlyphs) || ocr.minGlyphs < 1) {
+      throw new DownmarkError(
+        "downmark: ocr.minGlyphs must be a positive integer",
+        "INTERNAL",
+      );
+    }
+    // The floor is what the thin policy is: under any other one it
+    // selects nothing, and a caller who set it expected pages read.
+    if (ocr.policy !== "thin") {
+      throw new DownmarkError(
+        'downmark: ocr.minGlyphs needs policy "thin"',
+        "INTERNAL",
+      );
+    }
   }
   if (ocr.minConfidence !== undefined) {
     if (
