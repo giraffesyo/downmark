@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/giraffesyo/downmark/compare/v0.10.0...v0.10.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* bump the go-modules group across 1 directory with 3 updates ([#45](https://github.com/giraffesyo/downmark/issues/45)) ([4767fcd](https://github.com/giraffesyo/downmark/commit/4767fcdb9bfed8ddddcdae2b0b40aeb1b0d379af))
+
 ## [0.10.0](https://github.com/giraffesyo/downmark/compare/v0.9.0...v0.10.0) (2026-08-24)
 
 
