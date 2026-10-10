@@ -2,7 +2,7 @@ module github.com/giraffesyo/downmark
 
 go 1.26.0
 
-toolchain go1.26.4
+toolchain go1.26.9
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
@@ -10,7 +10,7 @@ require (
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
 	github.com/richardlehane/mscfb v1.0.8
 	github.com/xuri/excelize/v2 v2.11.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/text v0.42.0
 )
 
