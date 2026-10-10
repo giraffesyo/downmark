@@ -5,9 +5,9 @@ go 1.27.2
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/gabriel-vasile/mimetype v1.4.15
-	github.com/giraffesyo/pdf v0.6.0
+	github.com/giraffesyo/pdf v0.7.0
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
-	github.com/richardlehane/mscfb v1.0.8
+	github.com/richardlehane/mscfb v1.0.9
 	github.com/xuri/excelize/v2 v2.11.0
 	golang.org/x/net v0.60.0
 	golang.org/x/text v0.42.0
