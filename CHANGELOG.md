@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.1](https://github.com/giraffesyo/downmark/compare/v0.10.0...v0.10.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* bump the go-modules group across 1 directory with 3 updates ([#45](https://github.com/giraffesyo/downmark/issues/45)) ([4767fcd](https://github.com/giraffesyo/downmark/commit/4767fcdb9bfed8ddddcdae2b0b40aeb1b0d379af))
+* **deps:** build with Go 1.27.3 and move excelize to a fix for four malformed-workbook crashes ([#57](https://github.com/giraffesyo/downmark/issues/57)) ([c2f84ed](https://github.com/giraffesyo/downmark/commit/c2f84edc7a374ce10b7c3d3f863ec0c6dae239b3))
+* **deps:** require Go 1.27.2 and lift golang.org/x/net to v0.60.0 for their security fixes ([#52](https://github.com/giraffesyo/downmark/issues/52)) ([c6d0ec4](https://github.com/giraffesyo/downmark/commit/c6d0ec4d50d42d8bc9ec11c62090c06e048bf8b7))
+* **deps:** update Go dependencies, GitHub Actions and JS build tooling ([#58](https://github.com/giraffesyo/downmark/issues/58)) ([794e8a8](https://github.com/giraffesyo/downmark/commit/794e8a8e5e4c560cf52b3323e3652e8e96e446ff))
+
 ## [0.10.0](https://github.com/giraffesyo/downmark/compare/v0.9.0...v0.10.0) (2026-08-24)
 
 
